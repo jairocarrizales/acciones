@@ -177,10 +177,8 @@ function createPane(letter, defaultInterval) {
     drawMode: false, pendingPoint: null, previewPrimitive: null,
   };
 
-  // Los primitives se repintan solos en pan/zoom/resize (parte del ciclo normal del chart);
-  // no hace falta reposicionar nada a mano como con el enfoque anterior de divs superpuestos.
-  new ResizeObserver(() => chart.timeScale().fitContent()).observe(container);
-
+  // autoSize se encarga del redimensionado; no se re-encuadra el histórico completo
+  // para no perder el zoom en lo último del precio.
   return pane;
 }
 
@@ -657,11 +655,20 @@ document.addEventListener("keydown", (e) => {
 
 // ---------------- symbol / interval loading ----------------
 
+// Enfoca las últimas ~150 velas con un pequeño margen a la derecha: en cualquier
+// temporalidad se ve lo último que hace el precio con velas legibles, en vez de
+// todo el histórico amontonado (que era lo que hacía fitContent).
+function focusLatest(pane) {
+  const n = pane.candles.length;
+  if (!n) return;
+  pane.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 150), to: n + 6 });
+}
+
 async function loadCandles(pane, forceRefresh) {
   const qs = forceRefresh ? "?refresh=true" : "";
   pane.candles = await api(`/api/candles/${state.symbol}/${pane.interval}${qs}`);
   pane.candleSeries.setData(pane.candles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
-  pane.chart.timeScale().fitContent();
+  focusLatest(pane);
   // Reactiva el auto-escalado del eje de precios: al cambiar de activo (o temporalidad)
   // el gráfico vuelve a centrarse en el nuevo rango de precios, aunque el usuario haya
   // arrastrado el eje antes (eso apaga el auto-escalado hasta que se reactiva).
@@ -763,7 +770,7 @@ let splitViewEnabled = localStorage.getItem("splitView") === "1";
 function applySplitView() {
   chartPanesEl.classList.toggle("split", splitViewEnabled);
   btnSplitView.classList.toggle("active", splitViewEnabled);
-  requestAnimationFrame(() => Object.values(panes).forEach((p) => p.chart.timeScale().fitContent()));
+  requestAnimationFrame(() => Object.values(panes).forEach((p) => focusLatest(p)));
 }
 
 btnSplitView.addEventListener("click", () => {
