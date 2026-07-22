@@ -699,10 +699,9 @@ function renderPrice(price, prev) {
 async function selectSymbol(ticker) {
   state.symbol = ticker.toUpperCase();
   document.querySelectorAll(".wl-symbol").forEach((el) => el.classList.toggle("active", el.dataset.ticker === state.symbol));
-  document.getElementById("alarmSymbolLabel").textContent = state.symbol;
   await Promise.all([
     loadCandles(panes.A), loadCandles(panes.B),
-    loadMAConfig(), loadAlarms(), loadEarnings(), loadNews(), loadTargetPrice(), loadDailyReference(),
+    loadMAConfig(), loadAlarms(), loadEarnings(), loadTargetPrice(), loadDailyReference(),
   ]);
 }
 
@@ -1219,36 +1218,14 @@ async function loadMAConfig() {
   renderAllDailyMaLines();
 }
 
-// ---------------- alarms ----------------
+// ---------------- alarms (solo líneas en el gráfico; el panel de gestión se quitó) ----------------
 
 async function loadAlarms() {
-  state.alarms = await api(`/api/alarms?symbol=${state.symbol}`);
-  const alarms = state.alarms;
-  const list = document.getElementById("alarmList");
-  list.innerHTML = alarms.map((a) => `
-    <div class="alarm-item ${a.active ? "" : "triggered"}">
-      <div class="ai-top">
-        <span>${a.direction === "above"
-          ? '<i class="fa-solid fa-arrow-up"></i> Cruza arriba de'
-          : '<i class="fa-solid fa-arrow-down"></i> Cruza abajo de'} $${a.price}</span>
-      </div>
-      ${a.note ? `<div class="ai-note">${escapeHtml(a.note)}</div>` : ""}
-      ${a.triggered_at ? `<div class="ai-note">Disparada el ${a.triggered_at} a $${a.triggered_price}</div>` : ""}
-      <div class="ai-actions">
-        ${!a.active ? `<button data-reactivate="${a.id}">Reactivar</button>` : ""}
-        <button data-delalarm="${a.id}">Eliminar</button>
-      </div>
-    </div>`).join("") || `<p style="color:var(--text-dim);font-size:12px;">Sin alarmas para este símbolo.</p>`;
-
-  list.querySelectorAll("[data-delalarm]").forEach((btn) => btn.addEventListener("click", async () => {
-    await api(`/api/alarms/${btn.dataset.delalarm}`, { method: "DELETE" });
-    loadAlarms();
-  }));
-  list.querySelectorAll("[data-reactivate]").forEach((btn) => btn.addEventListener("click", async () => {
-    await api(`/api/alarms/${btn.dataset.reactivate}/reactivate`, { method: "POST" });
-    loadAlarms();
-  }));
-
+  try {
+    state.alarms = await api(`/api/alarms?symbol=${state.symbol}`);
+  } catch (_) {
+    state.alarms = [];
+  }
   Object.values(panes).forEach((p) => applyAlarmPriceLines(p));
 }
 
@@ -1263,20 +1240,6 @@ function applyAlarmPriceLines(pane) {
     pane.alarmPriceLines.push(pl);
   });
 }
-
-document.getElementById("btnAddAlarm").addEventListener("click", async () => {
-  const price = parseFloat(document.getElementById("alarmPrice").value);
-  if (!price) { toast("Ingresa un precio válido."); return; }
-  const direction = document.getElementById("alarmDir").value;
-  const note = document.getElementById("alarmNote").value;
-  await api("/api/alarms", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ symbol: state.symbol, price, direction, note }),
-  });
-  document.getElementById("alarmPrice").value = "";
-  document.getElementById("alarmNote").value = "";
-  loadAlarms();
-});
 
 async function pollAlarmEvents() {
   try {
@@ -1327,39 +1290,6 @@ function updateEarningsMarkers(pane) {
   pane.earningsMarkersPrimitive.setMarkers(markers);
 }
 
-// ---------------- noticias ----------------
-
-function timeAgo(ts) {
-  const diff = Math.max(0, Date.now() / 1000 - ts);
-  if (diff < 3600) return `hace ${Math.max(1, Math.round(diff / 60))} min`;
-  if (diff < 86400) return `hace ${Math.round(diff / 3600)} h`;
-  return `hace ${Math.round(diff / 86400)} d`;
-}
-
-async function loadNews(forceRefresh) {
-  document.getElementById("newsSymbolLabel").textContent = state.symbol;
-  const list = document.getElementById("newsList");
-  try {
-    const qs = forceRefresh ? "?refresh=true" : "";
-    state.news = await api(`/api/news/${state.symbol}${qs}`);
-    list.innerHTML = state.news.map((n) => `
-      <a class="news-item" href="${n.link}" target="_blank" rel="noopener noreferrer">
-        ${n.thumbnail ? `<img class="ni-thumb" src="${n.thumbnail}" alt="">` : `<div class="ni-thumb ni-thumb-placeholder"><i class="fa-solid fa-newspaper"></i></div>`}
-        <div class="ni-body">
-          <div class="ni-title">${escapeHtml(n.title_es)}</div>
-          <div class="ni-meta"><span class="ni-publisher">${escapeHtml(n.publisher)}</span> · ${timeAgo(n.published_ts)}</div>
-          <div class="ni-original">${escapeHtml(n.title)}</div>
-        </div>
-        <i class="fa-solid fa-arrow-up-right-from-square ni-ext"></i>
-      </a>`).join("") ||
-      `<p style="color:var(--text-dim);font-size:12px;">Sin noticias en las últimas 24 horas para ${state.symbol}.</p>`;
-  } catch (e) {
-    list.innerHTML = `<p style="color:var(--text-dim);font-size:12px;">Error al cargar noticias: ${e.message}</p>`;
-  }
-}
-
-document.getElementById("btnRefreshNews").addEventListener("click", () => loadNews(true));
-
 // ---------------- tabs ----------------
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -1408,13 +1338,11 @@ document.getElementById("btnSaveApiKey").addEventListener("click", async () => {
   toast("API key guardada.");
 });
 
-// ---------------- collapsible sidebars ----------------
+// ---------------- collapsible sidebar ----------------
 
 const appEl = document.getElementById("app");
 const leftSidebar = document.getElementById("sidebar-left");
-const rightSidebar = document.getElementById("sidebar-right");
 const btnCollapseLeft = document.getElementById("btnCollapseLeft");
-const btnCollapseRight = document.getElementById("btnCollapseRight");
 
 function setLeftCollapsed(collapsed) {
   leftSidebar.classList.toggle("collapsed", collapsed);
@@ -1422,17 +1350,9 @@ function setLeftCollapsed(collapsed) {
   localStorage.setItem("leftCollapsed", collapsed ? "1" : "0");
 }
 
-function setRightCollapsed(collapsed) {
-  rightSidebar.classList.toggle("collapsed", collapsed);
-  appEl.classList.toggle("collapse-right", collapsed);
-  localStorage.setItem("rightCollapsed", collapsed ? "1" : "0");
-}
-
 btnCollapseLeft.addEventListener("click", () => setLeftCollapsed(!leftSidebar.classList.contains("collapsed")));
-btnCollapseRight.addEventListener("click", () => setRightCollapsed(!rightSidebar.classList.contains("collapsed")));
 
 setLeftCollapsed(localStorage.getItem("leftCollapsed") === "1");
-setRightCollapsed(localStorage.getItem("rightCollapsed") === "1");
 
 // ---------------- init ----------------
 

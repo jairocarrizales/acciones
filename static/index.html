@@ -112,43 +112,6 @@
     </div>
   </main>
 
-  <aside id="sidebar-right">
-    <div class="sidebar-toggle-row right">
-      <button id="btnCollapseRight" class="sidebar-toggle-btn" title="Colapsar panel de indicadores"><i class="fa-solid fa-angles-right"></i></button>
-    </div>
-    <div class="sidebar-content">
-    <div class="tab-group">
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="alarmas">Alarmas</button>
-      <button class="tab-btn" data-tab="noticias">Noticias</button>
-    </div>
-
-    <div id="tab-alarmas" class="tab-panel active">
-      <div class="panel-head"><span>Nueva alarma</span></div>
-      <div class="alarm-form">
-        <input id="alarmPrice" type="number" step="any" placeholder="Precio objetivo">
-        <select id="alarmDir">
-          <option value="above">Cruza arriba de</option>
-          <option value="below">Cruza abajo de</option>
-        </select>
-        <input id="alarmNote" type="text" placeholder="Nota (opcional)">
-        <button id="btnAddAlarm" class="primary-btn">Crear alarma</button>
-      </div>
-      <div class="panel-head"><span>Alarmas de <b id="alarmSymbolLabel">—</b></span></div>
-      <div id="alarmList"></div>
-    </div>
-
-    <div id="tab-noticias" class="tab-panel">
-      <div class="panel-head">
-        <span>Noticias (24h) de <b id="newsSymbolLabel">—</b></span>
-        <button id="btnRefreshNews" title="Actualizar noticias"><i class="fa-solid fa-arrows-rotate"></i></button>
-      </div>
-      <div id="newsList"></div>
-    </div>
-    </div>
-    </div>
-  </aside>
-
 </div>
 
 <div id="settingsModal" class="modal hidden">
