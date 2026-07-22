@@ -6,10 +6,10 @@ import httpx
 
 BASE = "https://api.twelvedata.com"
 
-INTERVAL_MAP = {"m15": "15min", "1h": "1h", "1d": "1day"}
+INTERVAL_MAP = {"m15": "15min", "m30": "30min", "1h": "1h", "1d": "1day"}
 
 # Segundos de antigüedad máxima de la caché antes de volver a pedir a la API
-STALENESS = {"m15": 300, "1h": 900, "1d": 3600}
+STALENESS = {"m15": 300, "m30": 600, "1h": 900, "1d": 3600}
 
 
 class TwelveDataError(Exception):
