@@ -10,6 +10,7 @@ const state = {
   alarms: [],
   earnings: [],
   nextEarningsMap: {},
+  trendScan: {},
   news: [],
   targetPrice: null,
   dailyCandles: [], // referencia D1 para mostrar el nivel de sus MAs en paneles intradía
@@ -749,6 +750,68 @@ function applyTargetPriceLine(pane) {
   }
 }
 
+// ---------------- escáner de tendencia (SMA en D1 y H1) ----------------
+
+const TREND_TF_ORDER = ["1d", "1h"];
+const TREND_TF_LABEL = { "1d": "D1", "1h": "H1" };
+let trendScanPollTimer = null;
+
+async function loadTrendScan() {
+  try {
+    const r = await api("/api/trend-scan");
+    state.trendScan = r.trends || {};
+    updateAllTrendCircles();
+    return r.status;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Genera los 8 círculos (D1 primero, luego H1) para un ticker.
+function trendCirclesHtml(ticker) {
+  const data = state.trendScan[ticker];
+  let html = "";
+  TREND_TF_ORDER.forEach((tf, gi) => {
+    const circles = (data && data[tf]) || ["neutral", "neutral", "neutral", "neutral"];
+    html += `<span class="tf-group" title="${TREND_TF_LABEL[tf]}: 20/40, 40/100, 100/200, total">`;
+    circles.forEach((st, i) => {
+      const summary = i === 3 ? " summary" : "";
+      html += `<span class="tdot ${st}${summary}"></span>`;
+    });
+    html += `</span>`;
+    if (gi === 0) html += `<span class="tf-sep"></span>`;
+  });
+  return html;
+}
+
+// Actualiza los círculos ya renderizados sin recrear toda la lista.
+function updateAllTrendCircles() {
+  document.querySelectorAll(".wls-trend[data-ticker]").forEach((el) => {
+    el.innerHTML = trendCirclesHtml(el.dataset.ticker);
+  });
+}
+
+async function refreshTrendScan() {
+  const btn = document.getElementById("btnRefreshTrend");
+  if (btn) btn.classList.add("scanning");
+  try {
+    await api("/api/trend-scan/refresh", { method: "POST" });
+    if (trendScanPollTimer) clearInterval(trendScanPollTimer);
+    trendScanPollTimer = setInterval(async () => {
+      const status = await loadTrendScan();
+      if (!status || !status.running) {
+        clearInterval(trendScanPollTimer);
+        trendScanPollTimer = null;
+        if (btn) btn.classList.remove("scanning");
+        toast("Escáner de tendencia actualizado.");
+      }
+    }, 4000);
+  } catch (e) {
+    if (btn) btn.classList.remove("scanning");
+    toast("Error al actualizar el escáner: " + e.message);
+  }
+}
+
 // ---------------- watchlist ----------------
 
 async function loadWatchlist() {
@@ -757,9 +820,26 @@ async function loadWatchlist() {
     api("/api/earnings/next-all"),
   ]);
   state.nextEarningsMap = nextMap;
+  state.watchlistGroups = groups;
   const tree = document.getElementById("watchlistTree");
   tree.innerHTML = "";
   groups.forEach((g) => tree.appendChild(renderGroup(g)));
+  renderFavoritesTab(groups);
+}
+
+function renderFavoritesTab(groups) {
+  const favTree = document.getElementById("favoritesTree");
+  const hint = document.getElementById("favoritesEmptyHint");
+  favTree.innerHTML = "";
+  const favorites = [];
+  groups.forEach((g) => {
+    const showPremarket = /etf|materia/i.test(g.name);
+    g.symbols.forEach((s) => { if (s.favorite) favorites.push({ s, showPremarket }); });
+  });
+  const sorted = sortByEarnings(favorites.map((f) => f.s));
+  const showMap = new Map(favorites.map((f) => [f.s.id, f.showPremarket]));
+  sorted.forEach((s) => favTree.appendChild(renderSymbol(s, showMap.get(s.id))));
+  hint.style.display = sorted.length ? "none" : "block";
 }
 
 // Ordena por fecha del próximo reporte de ganancias (más próximo primero); los
@@ -832,14 +912,24 @@ function renderSymbol(s, showPremarket) {
     : "";
   el.innerHTML = `
     <div class="wl-symbol-top">
+      <button class="wls-fav${s.favorite ? " active" : ""}" title="${s.favorite ? "Quitar de favoritos" : "Agregar a favoritos"}"><i class="fa-solid fa-star"></i></button>
       <span class="wls-ticker">${s.ticker}</span><span class="wls-name">${escapeHtml(s.name || "")}</span>${badge}<button class="wls-del"><i class="fa-solid fa-xmark"></i></button>
     </div>
+    <div class="wls-trend" data-ticker="${s.ticker}">${trendCirclesHtml(s.ticker)}</div>
     ${showPremarket ? `<div class="wls-premarket"></div>` : ""}`;
-  el.addEventListener("click", (e) => { if (!e.target.closest(".wls-del")) selectSymbol(s.ticker); });
+  el.addEventListener("click", (e) => { if (!e.target.closest(".wls-del") && !e.target.closest(".wls-fav")) selectSymbol(s.ticker); });
   el.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/symbol-id", s.id));
   el.querySelector(".wls-del").addEventListener("click", async (e) => {
     e.stopPropagation();
     await api(`/api/watchlist/symbols/${s.id}`, { method: "DELETE" });
+    loadWatchlist();
+  });
+  el.querySelector(".wls-fav").addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await api(`/api/watchlist/symbols/${s.id}/favorite`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ favorite: !s.favorite }),
+    });
     loadWatchlist();
   });
   if (showPremarket) loadPremarketBadge(s.ticker, el.querySelector(".wls-premarket"));
@@ -872,6 +962,8 @@ document.getElementById("btnAddGroup").addEventListener("click", async () => {
   });
   loadWatchlist();
 });
+
+document.getElementById("btnRefreshTrend").addEventListener("click", refreshTrendScan);
 
 // ---------------- search ----------------
 
@@ -1084,8 +1176,9 @@ document.getElementById("btnRefreshNews").addEventListener("click", () => loadNe
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-    document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
+    const scope = btn.closest(".tab-group") || document;
+    scope.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    scope.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
   });
@@ -1163,6 +1256,7 @@ setRightCollapsed(localStorage.getItem("rightCollapsed") === "1");
   await loadWatchlist();
   await selectSymbol(state.symbol);
   pollAlarmEvents();
+  loadTrendScan();
 })();
 
 })();

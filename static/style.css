@@ -154,6 +154,26 @@ input, select, textarea {
 .wl-symbol.active .wls-name { color: #dbe6ff; }
 .wl-symbol .wls-del { opacity: 0; font-size: 11px; padding: 1px 5px; }
 .wl-symbol:hover .wls-del { opacity: 1; }
+.wl-symbol .wls-fav { font-size: 11px; padding: 1px 4px; color: var(--text-dim); opacity: 0.35; flex-shrink: 0; }
+.wl-symbol .wls-fav:hover { opacity: 1; }
+.wl-symbol .wls-fav.active { color: #facc15; opacity: 1; }
+.wl-symbol.active .wls-fav.active { color: #fff9c4; }
+#favoritesTree .wl-symbol { padding-left: 8px; }
+
+/* escáner de tendencia: 8 círculos (D1 | H1) */
+.wls-trend { display: flex; align-items: center; gap: 3px; padding-left: 58px; }
+.wls-trend .tf-group { display: flex; align-items: center; gap: 3px; }
+.wls-trend .tf-sep { width: 6px; }
+.wls-trend .tdot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+.wls-trend .tdot.up { background: #22c55e; }
+.wls-trend .tdot.down { background: #ef4444; }
+.wls-trend .tdot.neutral { background: #454b57; }
+.wls-trend .tdot.summary { width: 9px; height: 9px; box-shadow: 0 0 0 1.5px var(--bg); }
+.wl-symbol.active .wls-trend .tdot.neutral { background: rgba(255,255,255,0.28); }
+
+.panel-head-actions { display: flex; align-items: center; gap: 4px; }
+#btnRefreshTrend.scanning i { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .wl-symbol .wls-earnings {
   font-size: 10px; white-space: nowrap; padding: 2px 6px; border-radius: 10px; flex-shrink: 0;
 }

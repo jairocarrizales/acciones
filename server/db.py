@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS symbols (
     ticker TEXT NOT NULL,
     name TEXT DEFAULT '',
     group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    position INTEGER NOT NULL DEFAULT 0
+    position INTEGER NOT NULL DEFAULT 0,
+    favorite INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS candles (
     symbol TEXT NOT NULL,
@@ -129,6 +130,9 @@ def init_db():
         earnings_cols = {r["name"] for r in conn.execute("PRAGMA table_info(earnings)")}
         if "time_of_day" not in earnings_cols:
             conn.execute("ALTER TABLE earnings ADD COLUMN time_of_day TEXT NOT NULL DEFAULT ''")
+        symbols_cols = {r["name"] for r in conn.execute("PRAGMA table_info(symbols)")}
+        if "favorite" not in symbols_cols:
+            conn.execute("ALTER TABLE symbols ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")
         if conn.execute("SELECT COUNT(*) c FROM settings WHERE key='api_key'").fetchone()["c"] == 0:
             conn.execute("INSERT INTO settings (key, value) VALUES ('api_key', ?)", (DEFAULT_API_KEY,))
         if conn.execute("SELECT COUNT(*) c FROM ma_config WHERE scope='global'").fetchone()["c"] == 0:
@@ -172,9 +176,14 @@ def get_watchlist():
             "SELECT id, name, position FROM groups ORDER BY position, id")]
         for g in groups:
             g["symbols"] = [dict(r) for r in conn.execute(
-                "SELECT id, ticker, name, position FROM symbols WHERE group_id=? ORDER BY position, id",
+                "SELECT id, ticker, name, position, favorite FROM symbols WHERE group_id=? ORDER BY position, id",
                 (g["id"],))]
         return groups
+
+
+def set_favorite(sid, favorite):
+    with connect() as conn:
+        conn.execute("UPDATE symbols SET favorite=? WHERE id=?", (1 if favorite else 0, sid))
 
 
 def add_group(name):

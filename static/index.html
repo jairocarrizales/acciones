@@ -41,9 +41,24 @@
     <div class="sidebar-content">
       <div class="panel-head">
         <span>Lista de seguimiento</span>
-        <button id="btnAddGroup" title="Nuevo grupo"><i class="fa-solid fa-plus"></i> grupo</button>
+        <div class="panel-head-actions">
+          <button id="btnRefreshTrend" title="Actualizar escáner de tendencia"><i class="fa-solid fa-arrows-rotate"></i></button>
+          <button id="btnAddGroup" title="Nuevo grupo"><i class="fa-solid fa-plus"></i> grupo</button>
+        </div>
       </div>
-      <div id="watchlistTree"></div>
+      <div class="tab-group">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="grupos">Grupos</button>
+          <button class="tab-btn" data-tab="favoritos">Favoritos</button>
+        </div>
+        <div id="tab-grupos" class="tab-panel active">
+          <div id="watchlistTree"></div>
+        </div>
+        <div id="tab-favoritos" class="tab-panel">
+          <div id="favoritesTree"></div>
+          <p id="favoritesEmptyHint" class="hint">Toca la estrella junto a un símbolo para agregarlo aquí.</p>
+        </div>
+      </div>
     </div>
   </aside>
 
@@ -89,6 +104,7 @@
       <button id="btnCollapseRight" class="sidebar-toggle-btn" title="Colapsar panel de indicadores"><i class="fa-solid fa-angles-right"></i></button>
     </div>
     <div class="sidebar-content">
+    <div class="tab-group">
     <div class="tabs">
       <button class="tab-btn active" data-tab="alarmas">Alarmas</button>
       <button class="tab-btn" data-tab="noticias">Noticias</button>
@@ -115,6 +131,7 @@
         <button id="btnRefreshNews" title="Actualizar noticias"><i class="fa-solid fa-arrows-rotate"></i></button>
       </div>
       <div id="newsList"></div>
+    </div>
     </div>
     </div>
   </aside>

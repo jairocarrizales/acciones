@@ -13,6 +13,7 @@ from . import db
 from . import marketdata as md
 from . import news
 from . import targetprice as tp
+from . import trends
 from . import twelvedata as td
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -116,6 +117,16 @@ def move_symbol(sid: int, body: MoveSymbolIn):
     return {"ok": True}
 
 
+class FavoriteIn(BaseModel):
+    favorite: bool
+
+
+@app.put("/api/watchlist/symbols/{sid}/favorite")
+def set_favorite(sid: int, body: FavoriteIn):
+    db.set_favorite(sid, body.favorite)
+    return {"ok": True}
+
+
 @app.get("/api/search")
 async def search(q: str):
     if not q or len(q) < 1:
@@ -128,12 +139,8 @@ async def search(q: str):
 
 # ---------------- Candles ----------------
 
-@app.get("/api/candles/{symbol}/{interval}")
-async def get_candles(symbol: str, interval: str, refresh: bool = False):
-    symbol = symbol.upper()
-    if interval not in td.INTERVAL_MAP:
-        raise HTTPException(400, "Temporalidad inválida")
-
+async def _ensure_candles(symbol: str, interval: str, refresh: bool = False):
+    """Refresca la caché de velas si hace falta y devuelve las velas guardadas."""
     now = int(time.time())
     last_fetch = db.get_fetch_time(symbol, interval)
     stale = (now - last_fetch) > td.STALENESS[interval]
@@ -154,6 +161,71 @@ async def get_candles(symbol: str, interval: str, refresh: bool = False):
                 raise HTTPException(502, str(e))
 
     return db.get_candles(symbol, interval)
+
+
+@app.get("/api/candles/{symbol}/{interval}")
+async def get_candles(symbol: str, interval: str, refresh: bool = False):
+    symbol = symbol.upper()
+    if interval not in td.INTERVAL_MAP:
+        raise HTTPException(400, "Temporalidad inválida")
+    return await _ensure_candles(symbol, interval, refresh)
+
+
+# ---------------- Escáner de tendencia (SMA en D1 y H1) ----------------
+
+TREND_TIMEFRAMES = ["1d", "1h"]
+_trend_scan_state = {"running": False, "done": 0, "total": 0}
+
+
+def _watchlist_tickers():
+    seen, tickers = set(), []
+    for g in db.get_watchlist():
+        for s in g["symbols"]:
+            if s["ticker"] not in seen:
+                seen.add(s["ticker"])
+                tickers.append(s["ticker"])
+    return tickers
+
+
+@app.get("/api/trend-scan")
+def get_trend_scan():
+    """Calcula la tendencia por SMA desde las velas ya cacheadas (instantáneo, sin API)."""
+    result = {}
+    for ticker in _watchlist_tickers():
+        result[ticker] = {
+            tf: trends.compute_trend(db.get_candles(ticker, tf)) for tf in TREND_TIMEFRAMES
+        }
+    return {"trends": result, "status": dict(_trend_scan_state)}
+
+
+async def _trend_scan_worker():
+    tickers = _watchlist_tickers()
+    _trend_scan_state.update(running=True, done=0, total=len(tickers) * len(TREND_TIMEFRAMES))
+    try:
+        now = int(time.time())
+        for ticker in tickers:
+            for tf in TREND_TIMEFRAMES:
+                last_fetch = db.get_fetch_time(ticker, tf)
+                will_fetch = (now - last_fetch) > td.STALENESS[tf]
+                try:
+                    await _ensure_candles(ticker, tf, refresh=False)
+                except Exception:
+                    pass
+                _trend_scan_state["done"] += 1
+                # Solo esperamos cuando pegamos a la API, para respetar el
+                # límite del plan gratuito (~8 req/min) sin ralentizar los aciertos de caché.
+                if will_fetch:
+                    await asyncio.sleep(8)
+    finally:
+        _trend_scan_state["running"] = False
+
+
+@app.post("/api/trend-scan/refresh")
+async def refresh_trend_scan():
+    if _trend_scan_state["running"]:
+        return {"ok": True, "already_running": True, "status": dict(_trend_scan_state)}
+    asyncio.create_task(_trend_scan_worker())
+    return {"ok": True, "status": dict(_trend_scan_state)}
 
 
 def _date_to_ts(date_str: str) -> int:
