@@ -243,6 +243,24 @@ _saltos_state = {
 }
 
 
+def _get_jump_pct():
+    """% del rango consolidado que debe superar la apertura para contar como salto."""
+    try:
+        v = float(db.get_setting("saltos_jump_pct", str(saltos.DEFAULT_JUMP_PCT)))
+        return v if 0 < v <= 1000 else saltos.DEFAULT_JUMP_PCT
+    except (TypeError, ValueError):
+        return saltos.DEFAULT_JUMP_PCT
+
+
+def _premarket_cutoff_ts():
+    """Epoch de las 9:30 ET de hoy si ya abrió el mercado (para reevaluar la
+    consolidación del premarket después de la apertura); None si aún no abre."""
+    now_et = datetime.now(saltos.MARKET_TZ)
+    if now_et.weekday() < 5 and now_et.time() >= dtime(9, 30):
+        return int(now_et.replace(hour=9, minute=30, second=0, microsecond=0).timestamp())
+    return None
+
+
 async def _saltos_scan(cutoff_ts=None):
     """Escanea toda la watchlist buscando consolidación; reemplaza los candidatos."""
     _saltos_state["scanning"] = True
@@ -288,10 +306,11 @@ async def _saltos_evaluate(use_last_price=False):
                     price = await saltos.fetch_last_price(client, t)
                 return t, price
         results = await asyncio.gather(*(one(t) for t in cands))
+    mult = _get_jump_pct() / 100.0
     for t, price in results:
         if price is None:
             continue
-        verdict = saltos.judge_jump(cands[t], price)
+        verdict = saltos.judge_jump(cands[t], price, mult)
         cands[t].update(open_price=round(price, 4), **verdict)
     now_et = datetime.now(saltos.MARKET_TZ)
     # Una prueba manual antes de la apertura no marca la fase, para no suprimir
@@ -332,9 +351,25 @@ def _get_saltos_hearts():
         return []
 
 
+def _saltos_response():
+    return {**_saltos_state, "hearts": _get_saltos_hearts(), "jump_pct": _get_jump_pct()}
+
+
 @app.get("/api/saltos")
 def get_saltos():
-    return {**_saltos_state, "hearts": _get_saltos_hearts()}
+    return _saltos_response()
+
+
+class SaltosConfigIn(BaseModel):
+    jump_pct: float
+
+
+@app.post("/api/saltos/config")
+def set_saltos_config(body: SaltosConfigIn):
+    if not (0 < body.jump_pct <= 1000):
+        raise HTTPException(400, "jump_pct debe estar entre 0 y 1000")
+    db.set_setting("saltos_jump_pct", str(body.jump_pct))
+    return {"jump_pct": _get_jump_pct()}
 
 
 @app.post("/api/saltos/hearts/{ticker}")
@@ -352,17 +387,20 @@ def toggle_saltos_heart(ticker: str):
 
 @app.post("/api/saltos/scan")
 async def manual_saltos_scan():
-    """Escaneo manual (para probar o refrescar fuera del horario automático)."""
+    """Escaneo manual. Tras la apertura reconstruye la consolidación del premarket
+    de hoy (corte a las 9:30 ET); antes de abrir usa las últimas velas disponibles."""
     if not _saltos_state["scanning"]:
-        await _saltos_scan()
-    return _saltos_state
+        await _saltos_scan(cutoff_ts=_premarket_cutoff_ts())
+    return _saltos_response()
 
 
 @app.post("/api/saltos/evaluate")
 async def manual_saltos_evaluate():
-    """Evaluación manual del salto usando el último precio (pruebas fuera de las 9:30)."""
-    await _saltos_evaluate(use_last_price=True)
-    return _saltos_state
+    """Reevaluación manual: si ya pasaron las 9:30 usa la apertura real de esa vela;
+    antes de la apertura usa el último precio (simulacro)."""
+    past_open = _premarket_cutoff_ts() is not None
+    await _saltos_evaluate(use_last_price=not past_open)
+    return _saltos_response()
 
 
 def _date_to_ts(date_str: str) -> int:

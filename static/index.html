@@ -62,7 +62,11 @@
         <div id="tab-saltos" class="tab-panel">
           <div class="saltos-head">
             <span id="saltosStatus" class="hint">sin escaneo aún</span>
-            <button id="btnScanSaltos" title="Escanear consolidación ahora"><i class="fa-solid fa-bolt"></i></button>
+            <div class="saltos-controls">
+              <label class="salto-pct-label" title="Salto mínimo como % del rango consolidado">salto ≥<input id="saltoJumpPct" type="number" min="5" max="1000" step="5" value="50">%</label>
+              <button id="btnSaveSaltoPct" title="Guardar % y reevaluar"><i class="fa-solid fa-floppy-disk"></i></button>
+              <button id="btnScanSaltos" title="Escanear consolidación ahora"><i class="fa-solid fa-bolt"></i></button>
+            </div>
           </div>
           <div id="saltosList"></div>
           <p id="saltosEmptyHint" class="hint">Sin candidatos. El escáner corre solo de 7:30 a 9:30 (hora NY) buscando Bandas de Bollinger M15 horizontales, y a las 9:30:05 evalúa qué candidatos saltaron fuera de su rango.</p>

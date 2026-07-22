@@ -840,6 +840,8 @@ function sortSaltosTickers(tickers) {
 function renderSaltos(st) {
   lastSaltosState = st;
   if (st.hearts) saltosHearts = st.hearts;
+  const pctInput = document.getElementById("saltoJumpPct");
+  if (st.jump_pct != null && document.activeElement !== pctInput) pctInput.value = st.jump_pct;
   const list = document.getElementById("saltosList");
   const hint = document.getElementById("saltosEmptyHint");
   const statusEl = document.getElementById("saltosStatus");
@@ -907,6 +909,30 @@ document.getElementById("btnScanSaltos").addEventListener("click", async () => {
     toast(`Escaneo de consolidación: ${Object.keys(st.candidates || {}).length} candidato(s).`);
   } catch (e) {
     toast("Error del escáner de saltos: " + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("btnSaveSaltoPct").addEventListener("click", async () => {
+  const btn = document.getElementById("btnSaveSaltoPct");
+  const pct = parseFloat(document.getElementById("saltoJumpPct").value);
+  if (!(pct > 0)) { toast("Porcentaje inválido."); return; }
+  btn.disabled = true;
+  try {
+    await api("/api/saltos/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jump_pct: pct }),
+    });
+    // Reevalúa de inmediato con el nuevo umbral (escanea antes si no hay candidatos).
+    let st = await api("/api/saltos");
+    if (!Object.keys(st.candidates || {}).length) st = await api("/api/saltos/scan", { method: "POST" });
+    st = await api("/api/saltos/evaluate", { method: "POST" });
+    renderSaltos(st);
+    const n = Object.values(st.candidates || {}).filter((c) => c.status === "salto_alza" || c.status === "salto_baja").length;
+    toast(`Salto mínimo: ${pct}% del rango. Reevaluado: ${n} salto(s) detectado(s).`);
+  } catch (e) {
+    toast("Error al guardar: " + e.message);
   } finally {
     btn.disabled = false;
   }

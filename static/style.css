@@ -176,8 +176,11 @@ input, select, textarea {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* escáner de saltos */
-.saltos-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; gap: 8px; }
+.saltos-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; gap: 8px; flex-wrap: wrap; }
 .saltos-head button { font-size: 11px; padding: 3px 8px; flex-shrink: 0; }
+.saltos-controls { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.salto-pct-label { font-size: 11px; color: var(--text-dim); display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+#saltoJumpPct { width: 52px; padding: 3px 6px; font-size: 12px; }
 .salto-row { padding: 7px 8px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .salto-row:hover { background: var(--hover); }
 .salto-row.active { background: var(--accent); color: #fff; }

@@ -19,7 +19,7 @@ BB_MULT = 2.0
 WINDOW = 8              # velas M15 = 2 horas de consolidación
 MIN_WINDOW_CANDLES = 5  # el premarket puede tener huecos en símbolos poco líquidos
 FLAT_MAX_DRIFT_PCT = 0.5  # deriva máxima de cada banda dentro de la ventana, en % del precio
-JUMP_MULT = 1.0         # salto mínimo = 1x el tamaño del rango consolidado
+DEFAULT_JUMP_PCT = 50.0   # salto mínimo por defecto: 50% del rango consolidado (configurable en la UI)
 
 
 class SaltosError(Exception):
@@ -132,9 +132,10 @@ async def fetch_last_price(client, symbol):
     return candles[-1]["close"] if candles else None
 
 
-def judge_jump(candidate, open_price):
-    """Clasifica el salto según el rango consolidado. Reversión: baja->CALL, alza->PUT."""
-    rng = candidate["range_size"] * JUMP_MULT
+def judge_jump(candidate, open_price, mult):
+    """Clasifica el salto según el rango consolidado. Reversión: baja->CALL, alza->PUT.
+    mult: fracción del rango que debe superar la apertura (0.5 = 50% del rango)."""
+    rng = candidate["range_size"] * mult
     if open_price >= candidate["range_high"] + rng:
         return {"status": "salto_alza", "operation": "PUT",
                 "jump": round(open_price - candidate["range_high"], 4)}
