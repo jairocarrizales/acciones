@@ -21,6 +21,14 @@ MIN_WINDOW_CANDLES = 5  # el premarket puede tener huecos en símbolos poco líq
 FLAT_MAX_DRIFT_PCT = 0.5  # deriva máxima de cada banda dentro de la ventana, en % del precio
 DEFAULT_JUMP_PCT = 50.0   # salto mínimo por defecto: 50% del rango consolidado (configurable en la UI)
 
+# Filtros de "mercado lateral" (calibrados con datos reales): la banda media (SMA20)
+# debe ser casi horizontal en una ventana larga que incluye el cierre de la sesión
+# anterior — así se excluyen símbolos que venían en tendencia aunque su premarket
+# inmediato luzca plano — y las bandas no pueden estar demasiado separadas (volatilidad).
+TREND_WINDOW = 24         # velas M15 (~6 h: final de la sesión de ayer + premarket)
+MID_FLAT_MAX_PCT = 0.30   # deriva máxima de la banda media en TREND_WINDOW, % del precio
+MAX_BANDWIDTH_PCT = 1.4   # ancho máximo (sup - inf) al final, % del precio
+
 
 class SaltosError(Exception):
     pass
@@ -46,15 +54,16 @@ async def _fetch_chart(client, symbol, interval, rng):
 
 
 def _bollinger(closes):
-    """Listas (upper, lower) alineadas con closes; None donde no hay histórico."""
-    upper, lower = [None] * len(closes), [None] * len(closes)
+    """Listas (upper, mid, lower) alineadas con closes; None donde no hay histórico."""
+    upper, mid_l, lower = [None] * len(closes), [None] * len(closes), [None] * len(closes)
     for i in range(BB_PERIOD - 1, len(closes)):
         chunk = closes[i - BB_PERIOD + 1: i + 1]
         mid = sum(chunk) / BB_PERIOD
         sd = statistics.pstdev(chunk)
         upper[i] = mid + BB_MULT * sd
+        mid_l[i] = mid
         lower[i] = mid - BB_MULT * sd
-    return upper, lower
+    return upper, mid_l, lower
 
 
 def detect_consolidation(candles, cutoff_ts=None):
@@ -65,7 +74,7 @@ def detect_consolidation(candles, cutoff_ts=None):
     if len(candles) < BB_PERIOD + 1:
         return None
     closes = [c["close"] for c in candles]
-    upper, lower = _bollinger(closes)
+    upper, mid, lower = _bollinger(closes)
 
     win = list(range(max(BB_PERIOD - 1, len(candles) - WINDOW), len(candles)))
     win = [i for i in win if upper[i] is not None]
@@ -80,6 +89,23 @@ def detect_consolidation(candles, cutoff_ts=None):
     drift_up = (max(up_vals) - min(up_vals)) / last_close * 100
     drift_lo = (max(lo_vals) - min(lo_vals)) / last_close * 100
     if drift_up > FLAT_MAX_DRIFT_PCT or drift_lo > FLAT_MAX_DRIFT_PCT:
+        return None
+
+    # Lateral de fondo: la banda media (SMA20) casi horizontal en la ventana larga.
+    # Excluye símbolos en tendencia (subiendo o bajando hacia la apertura) cuyo
+    # premarket inmediato luce plano pero no es una consolidación real.
+    trend_win = [i for i in range(max(BB_PERIOD - 1, len(candles) - TREND_WINDOW), len(candles))
+                 if mid[i] is not None]
+    if len(trend_win) < TREND_WINDOW // 2:
+        return None
+    mid_vals = [mid[i] for i in trend_win]
+    drift_mid = (max(mid_vals) - min(mid_vals)) / last_close * 100
+    if drift_mid > MID_FLAT_MAX_PCT:
+        return None
+
+    # Volatilidad baja: bandas no demasiado separadas al momento del corte.
+    bandwidth = (up_vals[-1] - lo_vals[-1]) / last_close * 100
+    if bandwidth > MAX_BANDWIDTH_PCT:
         return None
 
     # Rango consolidado: extremos de velas Y de las bandas (lo que sea mayor/menor).
@@ -97,6 +123,8 @@ def detect_consolidation(candles, cutoff_ts=None):
         "window_candles": len(win),
         "drift_up_pct": round(drift_up, 3),
         "drift_lo_pct": round(drift_lo, 3),
+        "drift_mid_pct": round(drift_mid, 3),
+        "bandwidth_pct": round(bandwidth, 3),
     }
 
 

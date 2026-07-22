@@ -826,9 +826,18 @@ const SALTO_BADGES = {
   salto_baja: { cls: "baja", text: "SALTO ↓ → CALL" },
 };
 
-// Los marcados con corazón van primero (en su orden de marcado); el resto conserva su orden.
-function sortSaltosTickers(tickers) {
+// Orden: primero los que dieron salto (mayor salto arriba), luego los marcados
+// con corazón (en su orden de marcado), y el resto conserva su orden.
+function sortSaltosTickers(tickers, candidates) {
+  const jumped = (t) => {
+    const s = candidates[t]?.status;
+    return s === "salto_alza" || s === "salto_baja";
+  };
   return [...tickers].sort((a, b) => {
+    const ja = jumped(a), jb = jumped(b);
+    if (ja && jb) return (candidates[b].jump || 0) - (candidates[a].jump || 0);
+    if (ja) return -1;
+    if (jb) return 1;
     const ia = saltosHearts.indexOf(a), ib = saltosHearts.indexOf(b);
     if (ia !== -1 && ib !== -1) return ia - ib;
     if (ia !== -1) return -1;
@@ -845,7 +854,7 @@ function renderSaltos(st) {
   const list = document.getElementById("saltosList");
   const hint = document.getElementById("saltosEmptyHint");
   const statusEl = document.getElementById("saltosStatus");
-  const tickers = sortSaltosTickers(Object.keys(st.candidates || {}));
+  const tickers = sortSaltosTickers(Object.keys(st.candidates || {}), st.candidates || {});
   const phaseText = { esperando: "esperando premarket", consolidado: "consolidación detectada", evaluado: "salto evaluado" };
   statusEl.textContent = st.updated_at ? `${phaseText[st.phase] || st.phase} · ${st.updated_at}` : "sin escaneo aún";
   list.innerHTML = "";
@@ -892,7 +901,6 @@ async function pollSaltos() {
         const dir = c.status === "salto_alza" ? "al ALZA" : "a la BAJA";
         const msg = `${t}: salto ${dir} de $${c.jump.toFixed(2)} (apertura $${c.open_price.toFixed(2)}) → ${c.operation}`;
         toast(msg, true, "fa-bolt");
-        notifyBrowser("Salto en " + t, msg);
         beep();
       }
     });
