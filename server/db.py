@@ -310,6 +310,14 @@ def get_drawings(symbol, interval):
         return [{**dict(r), "data": json.loads(r["data"])} for r in rows]
 
 
+def get_all_drawings():
+    """Exportación completa: usada una sola vez por cada navegador para migrar
+    las líneas existentes a su almacenamiento local."""
+    with connect() as conn:
+        rows = conn.execute("SELECT id, symbol, interval, type, data FROM drawings ORDER BY id")
+        return [{**dict(r), "data": json.loads(r["data"])} for r in rows]
+
+
 def add_drawing(symbol, interval, dtype, data):
     with connect() as conn:
         cur = conn.execute("INSERT INTO drawings (symbol, interval, type, data) VALUES (?, ?, ?, ?)",

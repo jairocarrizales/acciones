@@ -93,6 +93,58 @@ document.getElementById("btnTheme").addEventListener("click", () => {
 
 // ---------------- chart setup (dos paneles independientes) ----------------
 
+// ---------------- personalización local (por navegador / PC de cada usuario) ----------------
+// Favoritos, corazones de saltos y líneas de tendencia se guardan en localStorage,
+// así cada persona que abre el portal desde su PC tiene su propia personalización.
+
+function localGet(key, fallback) {
+  try {
+    const v = JSON.parse(localStorage.getItem(key));
+    return v == null ? fallback : v;
+  } catch (_) { return fallback; }
+}
+function localSet(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+
+const getLocalFavs = () => localGet("favTickers", []);
+const setLocalFavs = (a) => localSet("favTickers", a);
+const getLocalHearts = () => localGet("saltosHeartsLocal", []);
+const setLocalHearts = (a) => localSet("saltosHeartsLocal", a);
+const drawingsKey = (sym, ivl) => `drawings:${sym}:${ivl}`;
+const getLocalDrawings = (sym, ivl) => localGet(drawingsKey(sym, ivl), []);
+const setLocalDrawings = (sym, ivl, arr) => localSet(drawingsKey(sym, ivl), arr);
+
+function nextDrawingId() {
+  const n = (parseInt(localStorage.getItem("drawingSeq") || "0", 10) || 0) + 1;
+  localStorage.setItem("drawingSeq", String(n));
+  return n;
+}
+
+// Importación única desde el servidor: los favoritos/líneas/corazones que existían
+// antes de que la personalización pasara a ser local se copian la primera vez que
+// este navegador abre el portal (después, cada navegador va por su cuenta).
+async function migrateLocalPersonalization(groups) {
+  if (localStorage.getItem("localPersonalizationV1")) return;
+  const favs = [];
+  (groups || []).forEach((g) => g.symbols.forEach((s) => { if (s.favorite) favs.push(s.ticker); }));
+  if (favs.length && !getLocalFavs().length) setLocalFavs(favs);
+  try {
+    const all = await api("/api/drawings-all");
+    const byKey = {};
+    all.forEach((d) => {
+      const k = drawingsKey(d.symbol, d.interval);
+      (byKey[k] = byKey[k] || []).push({ id: nextDrawingId(), data: d.data });
+    });
+    Object.entries(byKey).forEach(([k, arr]) => {
+      if (!localStorage.getItem(k)) localStorage.setItem(k, JSON.stringify(arr));
+    });
+  } catch (_) {}
+  try {
+    const st = await api("/api/saltos");
+    if (st.hearts && st.hearts.length && !getLocalHearts().length) setLocalHearts(st.hearts);
+  } catch (_) {}
+  localStorage.setItem("localPersonalizationV1", "1");
+}
+
 const LC = window.LightweightCharts;
 
 function createPane(letter, defaultInterval) {
@@ -437,7 +489,8 @@ function selectDrawing(pane, id) {
 }
 
 async function deleteDrawing(pane, id) {
-  await api(`/api/drawings/${id}`, { method: "DELETE" });
+  const arr = getLocalDrawings(state.symbol, pane.interval).filter((d) => d.id !== id);
+  setLocalDrawings(state.symbol, pane.interval, arr);
   if (pane.selectedDrawingId === id) pane.selectedDrawingId = null;
   await loadDrawings(pane);
 }
@@ -488,12 +541,12 @@ async function onDragEnd() {
   const drag = activeDrag;
   activeDrag = null;
   if (!drag) return;
-  try {
-    await api(`/api/drawings/${drag.id}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: { p1: drag.p.p1, p2: drag.p.p2, color: drag.p.options.color } }),
-    });
-  } catch (e) { toast("Error al guardar la línea: " + e.message); }
+  const arr = getLocalDrawings(state.symbol, drag.pane.interval);
+  const rec = arr.find((d) => d.id === drag.id);
+  if (rec) {
+    rec.data = { p1: drag.p.p1, p2: drag.p.p2, color: drag.p.options.color };
+    setLocalDrawings(state.symbol, drag.pane.interval, arr);
+  }
 }
 
 function clearPreview(pane) {
@@ -528,7 +581,7 @@ function renderDrawing(pane, d) {
 
 async function loadDrawings(pane) {
   clearDrawingSeries(pane);
-  pane.drawings = await api(`/api/drawings/${state.symbol}/${pane.interval}`);
+  pane.drawings = getLocalDrawings(state.symbol, pane.interval);
   pane.drawings.forEach((d) => renderDrawing(pane, d));
 }
 
@@ -569,13 +622,10 @@ function setupDrawingTool(pane) {
       const p2 = { time: param.time, price };
       pane.pendingPoint = null;
       clearPreview(pane);
-      api("/api/drawings", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          symbol: state.symbol, interval: pane.interval, type: "trend",
-          data: { p1, p2, color: DRAW_COLOR },
-        }),
-      }).then(() => loadDrawings(pane));
+      const arr = getLocalDrawings(state.symbol, pane.interval);
+      arr.push({ id: nextDrawingId(), data: { p1, p2, color: DRAW_COLOR } });
+      setLocalDrawings(state.symbol, pane.interval, arr);
+      loadDrawings(pane);
       setDrawMode(pane, false);
     }
   });
@@ -848,7 +898,7 @@ function sortSaltosTickers(tickers, candidates) {
 
 function renderSaltos(st) {
   lastSaltosState = st;
-  if (st.hearts) saltosHearts = st.hearts;
+  saltosHearts = getLocalHearts();
   const pctInput = document.getElementById("saltoJumpPct");
   if (st.jump_pct != null && document.activeElement !== pctInput) pctInput.value = st.jump_pct;
   const list = document.getElementById("saltosList");
@@ -872,18 +922,13 @@ function renderSaltos(st) {
       </div>
       <div class="salto-sub">Rango ${c.range_low.toFixed(2)}–${c.range_high.toFixed(2)} ($${c.range_size.toFixed(2)})${c.open_price != null ? ` · apertura $${c.open_price.toFixed(2)}` : ""}${c.eval_price != null && c.eval_price !== c.open_price ? ` · pico $${c.eval_price.toFixed(2)}` : ""}</div>`;
     row.addEventListener("click", (e) => { if (!e.target.closest(".salto-heart")) selectSymbol(t); });
-    row.querySelector(".salto-heart").addEventListener("click", async (e) => {
+    row.querySelector(".salto-heart").addEventListener("click", (e) => {
       e.stopPropagation();
-      try {
-        const r = await api(`/api/saltos/hearts/${t}`, { method: "POST" });
-        saltosHearts = r.tickers;
-        if (lastSaltosState) {
-          lastSaltosState.hearts = r.tickers; // que el re-render no pise la lista recién actualizada
-          renderSaltos(lastSaltosState);
-        }
-      } catch (err) {
-        toast("Error al marcar favorito: " + err.message);
-      }
+      const hearts = getLocalHearts();
+      const i = hearts.indexOf(t);
+      if (i !== -1) hearts.splice(i, 1); else hearts.unshift(t); // el recién marcado va de primero
+      setLocalHearts(hearts);
+      if (lastSaltosState) renderSaltos(lastSaltosState);
     });
     list.appendChild(row);
   });
@@ -955,6 +1000,13 @@ async function loadWatchlist() {
   ]);
   state.nextEarningsMap = nextMap;
   state.watchlistGroups = groups;
+  await migrateLocalPersonalization(groups);
+  rerenderWatchlist();
+}
+
+// Re-render sin volver a consultar al servidor (p. ej. al marcar un favorito local).
+function rerenderWatchlist() {
+  const groups = state.watchlistGroups || [];
   const tree = document.getElementById("watchlistTree");
   tree.innerHTML = "";
   groups.forEach((g) => tree.appendChild(renderGroup(g)));
@@ -965,10 +1017,11 @@ function renderFavoritesTab(groups) {
   const favTree = document.getElementById("favoritesTree");
   const hint = document.getElementById("favoritesEmptyHint");
   favTree.innerHTML = "";
+  const favs = getLocalFavs();
   const favorites = [];
   groups.forEach((g) => {
     const showPremarket = /etf|materia/i.test(g.name);
-    g.symbols.forEach((s) => { if (s.favorite) favorites.push({ s, showPremarket }); });
+    g.symbols.forEach((s) => { if (favs.includes(s.ticker)) favorites.push({ s, showPremarket }); });
   });
   const sorted = sortByEarnings(favorites.map((f) => f.s));
   const showMap = new Map(favorites.map((f) => [f.s.id, f.showPremarket]));
@@ -1044,9 +1097,10 @@ function renderSymbol(s, showPremarket) {
   const badge = next
     ? `<span class="wls-earnings ${next.status}" title="Próximo reporte: ${next.date}${timeLabel ? " — " + timeLabel : ""} (${statusLabel})"><i class="fa-solid fa-calendar-days"></i> ${formatShortDate(next.date)}${timeShort}</span>`
     : "";
+  const isFav = getLocalFavs().includes(s.ticker);
   el.innerHTML = `
     <div class="wl-symbol-top">
-      <button class="wls-fav${s.favorite ? " active" : ""}" title="${s.favorite ? "Quitar de favoritos" : "Agregar a favoritos"}"><i class="fa-solid fa-star"></i></button>
+      <button class="wls-fav${isFav ? " active" : ""}" title="${isFav ? "Quitar de favoritos" : "Agregar a favoritos"}"><i class="fa-solid fa-star"></i></button>
       <span class="wls-ticker">${s.ticker}</span><span class="wls-name">${escapeHtml(s.name || "")}</span>${badge}<button class="wls-del"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="wls-trend" data-ticker="${s.ticker}">${trendCirclesHtml(s.ticker)}</div>
@@ -1058,13 +1112,13 @@ function renderSymbol(s, showPremarket) {
     await api(`/api/watchlist/symbols/${s.id}`, { method: "DELETE" });
     loadWatchlist();
   });
-  el.querySelector(".wls-fav").addEventListener("click", async (e) => {
+  el.querySelector(".wls-fav").addEventListener("click", (e) => {
     e.stopPropagation();
-    await api(`/api/watchlist/symbols/${s.id}/favorite`, {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ favorite: !s.favorite }),
-    });
-    loadWatchlist();
+    const favs = getLocalFavs();
+    const i = favs.indexOf(s.ticker);
+    if (i !== -1) favs.splice(i, 1); else favs.push(s.ticker);
+    setLocalFavs(favs);
+    rerenderWatchlist();
   });
   if (showPremarket) loadPremarketBadge(s.ticker, el.querySelector(".wls-premarket"));
   return el;

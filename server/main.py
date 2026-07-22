@@ -554,6 +554,11 @@ class DrawingIn(BaseModel):
     data: dict
 
 
+@app.get("/api/drawings-all")
+def get_all_drawings():
+    return db.get_all_drawings()
+
+
 @app.get("/api/drawings/{symbol}/{interval}")
 def get_drawings(symbol: str, interval: str):
     return db.get_drawings(symbol.upper(), interval)
