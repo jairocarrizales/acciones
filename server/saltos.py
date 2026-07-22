@@ -109,8 +109,10 @@ async def scan_symbol(client, symbol, cutoff_ts=None):
     return detect_consolidation(candles, cutoff_ts)
 
 
-async def fetch_open_930(client, symbol):
-    """Precio de apertura de la vela de 1 min de las 9:30 ET de hoy (o None si aún no existe)."""
+async def fetch_open_snapshot(client, symbol):
+    """Vela de 1 min de las 9:30 ET de hoy, tal como va formándose: en vivo (9:30:05)
+    su máximo/mínimo ya recoge el disparo de los primeros segundos; en una prueba
+    retrospectiva recoge el primer minuto completo. None si aún no existe."""
     try:
         candles = await _fetch_chart(client, symbol, "1m", "1d")
     except (SaltosError, httpx.HTTPError):
@@ -119,8 +121,20 @@ async def fetch_open_930(client, symbol):
     for c in candles:
         dt = datetime.fromtimestamp(c["ts"], MARKET_TZ)
         if dt.date() == today and dt.hour == 9 and dt.minute == 30:
-            return c["open"]
+            return {"open": c["open"], "high": c["high"], "low": c["low"]}
     return None
+
+
+def pick_extreme(candidate, prices):
+    """El precio que más se aleja del rango consolidado (0 si está dentro).
+    Así el salto se mide sobre el movimiento real de la apertura, no solo el open."""
+    def deviation(p):
+        if p > candidate["range_high"]:
+            return p - candidate["range_high"]
+        if p < candidate["range_low"]:
+            return candidate["range_low"] - p
+        return 0.0
+    return max(prices, key=deviation)
 
 
 async def fetch_last_price(client, symbol):

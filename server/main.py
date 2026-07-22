@@ -295,23 +295,30 @@ async def _saltos_evaluate(use_last_price=False):
     async with saltos.make_client() as client:
         async def one(t):
             async with sem:
-                price = None
+                snap = None
                 if not use_last_price:
                     for _ in range(6):  # la vela de 9:30 puede tardar unos segundos en aparecer
-                        price = await saltos.fetch_open_930(client, t)
-                        if price is not None:
+                        snap = await saltos.fetch_open_snapshot(client, t)
+                        if snap is not None:
                             break
                         await asyncio.sleep(3)
-                if price is None:
+                if snap is None:
                     price = await saltos.fetch_last_price(client, t)
-                return t, price
+                    snap = {"open": None, "high": None, "low": None, "last": price}
+                return t, snap
         results = await asyncio.gather(*(one(t) for t in cands))
     mult = _get_jump_pct() / 100.0
-    for t, price in results:
-        if price is None:
+    for t, snap in results:
+        # Se evalúa el precio que más se alejó del rango en la vela de las 9:30
+        # (apertura, máximo o mínimo), para capturar el disparo de los primeros
+        # segundos aunque la apertura exacta haya quedado dentro del rango.
+        prices = [p for p in (snap["open"], snap["high"], snap["low"], snap.get("last")) if p is not None]
+        if not prices:
             continue
-        verdict = saltos.judge_jump(cands[t], price, mult)
-        cands[t].update(open_price=round(price, 4), **verdict)
+        eval_price = saltos.pick_extreme(cands[t], prices)
+        verdict = saltos.judge_jump(cands[t], eval_price, mult)
+        shown_open = snap["open"] if snap["open"] is not None else eval_price
+        cands[t].update(open_price=round(shown_open, 4), eval_price=round(eval_price, 4), **verdict)
     now_et = datetime.now(saltos.MARKET_TZ)
     # Una prueba manual antes de la apertura no marca la fase, para no suprimir
     # la evaluación real de las 9:30:05 (que solo corre si la fase es "consolidado").

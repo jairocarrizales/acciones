@@ -861,7 +861,7 @@ function renderSaltos(st) {
         <span class="salto-badge ${b.cls}">${b.text}</span>
         <button class="salto-heart${hearted ? " active" : ""}" title="${hearted ? "Quitar de arriba" : "Fijar arriba"}"><i class="fa-solid fa-heart"></i></button>
       </div>
-      <div class="salto-sub">Rango ${c.range_low.toFixed(2)}–${c.range_high.toFixed(2)} ($${c.range_size.toFixed(2)})${c.open_price != null ? ` · apertura $${c.open_price.toFixed(2)}` : ""}</div>`;
+      <div class="salto-sub">Rango ${c.range_low.toFixed(2)}–${c.range_high.toFixed(2)} ($${c.range_size.toFixed(2)})${c.open_price != null ? ` · apertura $${c.open_price.toFixed(2)}` : ""}${c.eval_price != null && c.eval_price !== c.open_price ? ` · pico $${c.eval_price.toFixed(2)}` : ""}</div>`;
     row.addEventListener("click", (e) => { if (!e.target.closest(".salto-heart")) selectSymbol(t); });
     row.querySelector(".salto-heart").addEventListener("click", async (e) => {
       e.stopPropagation();
