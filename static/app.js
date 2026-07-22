@@ -611,6 +611,10 @@ async function loadCandles(pane, forceRefresh) {
   pane.candles = await api(`/api/candles/${state.symbol}/${pane.interval}${qs}`);
   pane.candleSeries.setData(pane.candles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
   pane.chart.timeScale().fitContent();
+  // Reactiva el auto-escalado del eje de precios: al cambiar de activo (o temporalidad)
+  // el gráfico vuelve a centrarse en el nuevo rango de precios, aunque el usuario haya
+  // arrastrado el eje antes (eso apaga el auto-escalado hasta que se reactiva).
+  pane.candleSeries.priceScale().applyOptions({ autoScale: true });
   renderMAs(pane);
   renderBollinger(pane);
   updateEarningsMarkers(pane);
