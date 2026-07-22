@@ -50,6 +50,7 @@
         <div class="tabs">
           <button class="tab-btn active" data-tab="grupos">Grupos</button>
           <button class="tab-btn" data-tab="favoritos">Favoritos</button>
+          <button class="tab-btn" data-tab="saltos">Saltos</button>
         </div>
         <div id="tab-grupos" class="tab-panel active">
           <div id="watchlistTree"></div>
@@ -57,6 +58,14 @@
         <div id="tab-favoritos" class="tab-panel">
           <div id="favoritesTree"></div>
           <p id="favoritesEmptyHint" class="hint">Toca la estrella junto a un símbolo para agregarlo aquí.</p>
+        </div>
+        <div id="tab-saltos" class="tab-panel">
+          <div class="saltos-head">
+            <span id="saltosStatus" class="hint">sin escaneo aún</span>
+            <button id="btnScanSaltos" title="Escanear consolidación ahora"><i class="fa-solid fa-bolt"></i></button>
+          </div>
+          <div id="saltosList"></div>
+          <p id="saltosEmptyHint" class="hint">Sin candidatos. El escáner corre solo de 7:30 a 9:30 (hora NY) buscando Bandas de Bollinger M15 horizontales, y a las 9:30:05 evalúa qué candidatos saltaron fuera de su rango.</p>
         </div>
       </div>
     </div>

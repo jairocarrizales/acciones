@@ -174,6 +174,21 @@ input, select, textarea {
 .panel-head-actions { display: flex; align-items: center; gap: 4px; }
 #btnRefreshTrend.scanning i { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* escáner de saltos */
+.saltos-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; gap: 8px; }
+.saltos-head button { font-size: 11px; padding: 3px 8px; flex-shrink: 0; }
+.salto-row { padding: 7px 8px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.salto-row:hover { background: var(--hover); }
+.salto-row.active { background: var(--accent); color: #fff; }
+.salto-row.active .salto-sub { color: #dbe6ff; }
+.salto-top { display: flex; align-items: center; gap: 8px; }
+.salto-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
+.salto-badge.consolidado { background: rgba(59,130,246,0.18); color: var(--accent); }
+.salto-badge.sin-salto { background: rgba(140,150,170,0.2); color: var(--text-dim); }
+.salto-badge.alza { background: rgba(239,68,68,0.2); color: #ef4444; }
+.salto-badge.baja { background: rgba(34,197,94,0.2); color: #22c55e; }
+.salto-sub { font-size: 11px; color: var(--text-dim); }
 .wl-symbol .wls-earnings {
   font-size: 10px; white-space: nowrap; padding: 2px 6px; border-radius: 10px; flex-shrink: 0;
 }

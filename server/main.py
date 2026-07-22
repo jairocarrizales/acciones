@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from . import db
 from . import marketdata as md
 from . import news
+from . import saltos
 from . import targetprice as tp
 from . import trends
 from . import twelvedata as td
@@ -226,6 +227,121 @@ async def refresh_trend_scan():
         return {"ok": True, "already_running": True, "status": dict(_trend_scan_state)}
     asyncio.create_task(_trend_scan_worker())
     return {"ok": True, "status": dict(_trend_scan_state)}
+
+
+# ---------------- Escáner de saltos (consolidación premarket + gap de apertura) ----------------
+
+from datetime import time as dtime  # noqa: E402
+
+_saltos_state = {
+    "date": None,        # día de mercado (ET) al que pertenece el escaneo
+    "phase": "esperando",  # esperando | consolidado | evaluado
+    "updated_at": None,
+    "scanning": False,
+    "candidates": {},    # ticker -> {range_*, status, operation, jump, open_price}
+}
+
+
+async def _saltos_scan(cutoff_ts=None):
+    """Escanea toda la watchlist buscando consolidación; reemplaza los candidatos."""
+    _saltos_state["scanning"] = True
+    try:
+        tickers = _watchlist_tickers()
+        sem = asyncio.Semaphore(5)
+        async with saltos.make_client() as client:
+            async def one(t):
+                async with sem:
+                    return t, await saltos.scan_symbol(client, t, cutoff_ts)
+            results = await asyncio.gather(*(one(t) for t in tickers))
+        candidates = {}
+        for t, c in results:
+            if c:
+                c.update(status="consolidado", operation=None, jump=None, open_price=None)
+                candidates[t] = c
+        now_et = datetime.now(saltos.MARKET_TZ)
+        _saltos_state.update(
+            date=now_et.strftime("%Y-%m-%d"), phase="consolidado",
+            updated_at=now_et.strftime("%H:%M:%S ET"), candidates=candidates,
+        )
+    finally:
+        _saltos_state["scanning"] = False
+
+
+async def _saltos_evaluate(use_last_price=False):
+    """Evalúa el gap de apertura de cada candidato contra su rango consolidado."""
+    cands = _saltos_state["candidates"]
+    if not cands:
+        return
+    sem = asyncio.Semaphore(5)
+    async with saltos.make_client() as client:
+        async def one(t):
+            async with sem:
+                price = None
+                if not use_last_price:
+                    for _ in range(6):  # la vela de 9:30 puede tardar unos segundos en aparecer
+                        price = await saltos.fetch_open_930(client, t)
+                        if price is not None:
+                            break
+                        await asyncio.sleep(3)
+                if price is None:
+                    price = await saltos.fetch_last_price(client, t)
+                return t, price
+        results = await asyncio.gather(*(one(t) for t in cands))
+    for t, price in results:
+        if price is None:
+            continue
+        verdict = saltos.judge_jump(cands[t], price)
+        cands[t].update(open_price=round(price, 4), **verdict)
+    now_et = datetime.now(saltos.MARKET_TZ)
+    # Una prueba manual antes de la apertura no marca la fase, para no suprimir
+    # la evaluación real de las 9:30:05 (que solo corre si la fase es "consolidado").
+    if not use_last_price or now_et.time() >= dtime(9, 30):
+        _saltos_state["phase"] = "evaluado"
+    _saltos_state["updated_at"] = now_et.strftime("%H:%M:%S ET")
+
+
+async def saltos_watcher():
+    """Escanea cada ~10 min de 7:30 a 9:30 ET y evalúa el gap a las 9:30:05."""
+    last_scan_ts = 0.0
+    while True:
+        try:
+            now_et = datetime.now(saltos.MARKET_TZ)
+            today = now_et.strftime("%Y-%m-%d")
+            if now_et.weekday() < 5:
+                t = now_et.time()
+                if dtime(7, 30) <= t < dtime(9, 30):
+                    if time.time() - last_scan_ts > 600 and not _saltos_state["scanning"]:
+                        await _saltos_scan()
+                        last_scan_ts = time.time()
+                elif t >= dtime(9, 30, 5) and t < dtime(16, 0) \
+                        and _saltos_state["date"] == today and _saltos_state["phase"] == "consolidado":
+                    await _saltos_evaluate()
+        except Exception:
+            pass
+        # Cerca de la apertura afinamos el reloj para disparar a las 9:30:05 en punto.
+        now_et = datetime.now(saltos.MARKET_TZ)
+        near_open = now_et.weekday() < 5 and dtime(9, 28) <= now_et.time() < dtime(9, 31)
+        await asyncio.sleep(1 if near_open else 30)
+
+
+@app.get("/api/saltos")
+def get_saltos():
+    return _saltos_state
+
+
+@app.post("/api/saltos/scan")
+async def manual_saltos_scan():
+    """Escaneo manual (para probar o refrescar fuera del horario automático)."""
+    if not _saltos_state["scanning"]:
+        await _saltos_scan()
+    return _saltos_state
+
+
+@app.post("/api/saltos/evaluate")
+async def manual_saltos_evaluate():
+    """Evaluación manual del salto usando el último precio (pruebas fuera de las 9:30)."""
+    await _saltos_evaluate(use_last_price=True)
+    return _saltos_state
 
 
 def _date_to_ts(date_str: str) -> int:
@@ -560,6 +676,7 @@ async def alarm_watcher():
 @app.on_event("startup")
 async def on_startup():
     asyncio.create_task(alarm_watcher())
+    asyncio.create_task(saltos_watcher())
 
 
 # ---------------- Static frontend ----------------

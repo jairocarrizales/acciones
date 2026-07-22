@@ -812,6 +812,76 @@ async function refreshTrendScan() {
   }
 }
 
+// ---------------- escáner de saltos (consolidación premarket + gap de apertura) ----------------
+
+let saltosNotified = new Set();
+let saltosDate = null;
+
+const SALTO_BADGES = {
+  consolidado: { cls: "consolidado", text: "consolidado" },
+  sin_salto: { cls: "sin-salto", text: "sin salto" },
+  salto_alza: { cls: "alza", text: "SALTO ↑ → PUT" },
+  salto_baja: { cls: "baja", text: "SALTO ↓ → CALL" },
+};
+
+function renderSaltos(st) {
+  const list = document.getElementById("saltosList");
+  const hint = document.getElementById("saltosEmptyHint");
+  const statusEl = document.getElementById("saltosStatus");
+  const tickers = Object.keys(st.candidates || {});
+  const phaseText = { esperando: "esperando premarket", consolidado: "consolidación detectada", evaluado: "salto evaluado" };
+  statusEl.textContent = st.updated_at ? `${phaseText[st.phase] || st.phase} · ${st.updated_at}` : "sin escaneo aún";
+  list.innerHTML = "";
+  tickers.forEach((t) => {
+    const c = st.candidates[t];
+    const b = SALTO_BADGES[c.status] || SALTO_BADGES.consolidado;
+    const row = document.createElement("div");
+    row.className = "salto-row" + (t === state.symbol ? " active" : "");
+    row.innerHTML = `
+      <div class="salto-top">
+        <span class="wls-ticker">${t}</span>
+        <span class="salto-badge ${b.cls}">${b.text}</span>
+      </div>
+      <div class="salto-sub">Rango ${c.range_low.toFixed(2)}–${c.range_high.toFixed(2)} ($${c.range_size.toFixed(2)})${c.open_price != null ? ` · apertura $${c.open_price.toFixed(2)}` : ""}</div>`;
+    row.addEventListener("click", () => selectSymbol(t));
+    list.appendChild(row);
+  });
+  hint.style.display = tickers.length ? "none" : "block";
+}
+
+async function pollSaltos() {
+  try {
+    const st = await api("/api/saltos");
+    if (st.date !== saltosDate) { saltosDate = st.date; saltosNotified = new Set(); }
+    renderSaltos(st);
+    Object.entries(st.candidates || {}).forEach(([t, c]) => {
+      if ((c.status === "salto_alza" || c.status === "salto_baja") && !saltosNotified.has(t)) {
+        saltosNotified.add(t);
+        const dir = c.status === "salto_alza" ? "al ALZA" : "a la BAJA";
+        const msg = `${t}: salto ${dir} de $${c.jump.toFixed(2)} (apertura $${c.open_price.toFixed(2)}) → ${c.operation}`;
+        toast(msg, true, "fa-bolt");
+        notifyBrowser("Salto en " + t, msg);
+        beep();
+      }
+    });
+  } catch (_) {}
+  setTimeout(pollSaltos, 10000);
+}
+
+document.getElementById("btnScanSaltos").addEventListener("click", async () => {
+  const btn = document.getElementById("btnScanSaltos");
+  btn.disabled = true;
+  try {
+    const st = await api("/api/saltos/scan", { method: "POST" });
+    renderSaltos(st);
+    toast(`Escaneo de consolidación: ${Object.keys(st.candidates || {}).length} candidato(s).`);
+  } catch (e) {
+    toast("Error del escáner de saltos: " + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // ---------------- watchlist ----------------
 
 async function loadWatchlist() {
@@ -1257,6 +1327,7 @@ setRightCollapsed(localStorage.getItem("rightCollapsed") === "1");
   await selectSymbol(state.symbol);
   pollAlarmEvents();
   loadTrendScan();
+  pollSaltos();
 })();
 
 })();
