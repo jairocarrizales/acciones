@@ -193,7 +193,7 @@ def get_trend_scan():
     result = {}
     for ticker in _watchlist_tickers():
         result[ticker] = {
-            tf: trends.compute_trend(db.get_candles(ticker, tf)) for tf in TREND_TIMEFRAMES
+            tf: trends.compute_trend(db.get_candles(ticker, tf), tf) for tf in TREND_TIMEFRAMES
         }
     return {"trends": result, "status": dict(_trend_scan_state)}
 
