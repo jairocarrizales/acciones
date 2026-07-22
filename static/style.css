@@ -183,6 +183,14 @@ input, select, textarea {
 .salto-row.active { background: var(--accent); color: #fff; }
 .salto-row.active .salto-sub { color: #dbe6ff; }
 .salto-top { display: flex; align-items: center; gap: 8px; }
+.salto-heart {
+  margin-left: auto; flex-shrink: 0; font-size: 11px; padding: 1px 4px;
+  background: transparent; border: none; color: var(--text-dim); opacity: 0.4;
+}
+.salto-heart:hover { opacity: 1; background: transparent; }
+.salto-heart.active { color: #f43f5e; opacity: 1; }
+.salto-row.active .salto-heart { color: rgba(255,255,255,0.55); }
+.salto-row.active .salto-heart.active { color: #ffd0d9; }
 .salto-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
 .salto-badge.consolidado { background: rgba(59,130,246,0.18); color: var(--accent); }
 .salto-badge.sin-salto { background: rgba(140,150,170,0.2); color: var(--text-dim); }

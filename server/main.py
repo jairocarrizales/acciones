@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -324,9 +325,29 @@ async def saltos_watcher():
         await asyncio.sleep(1 if near_open else 30)
 
 
+def _get_saltos_hearts():
+    try:
+        return json.loads(db.get_setting("saltos_hearts", "[]"))
+    except (ValueError, TypeError):
+        return []
+
+
 @app.get("/api/saltos")
 def get_saltos():
-    return _saltos_state
+    return {**_saltos_state, "hearts": _get_saltos_hearts()}
+
+
+@app.post("/api/saltos/hearts/{ticker}")
+def toggle_saltos_heart(ticker: str):
+    """Marca/desmarca un favorito de saltos. El recién marcado pasa al frente."""
+    ticker = ticker.upper()
+    hearts = _get_saltos_hearts()
+    if ticker in hearts:
+        hearts.remove(ticker)
+    else:
+        hearts.insert(0, ticker)
+    db.set_setting("saltos_hearts", json.dumps(hearts))
+    return {"tickers": hearts}
 
 
 @app.post("/api/saltos/scan")

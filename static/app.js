@@ -816,6 +816,8 @@ async function refreshTrendScan() {
 
 let saltosNotified = new Set();
 let saltosDate = null;
+let saltosHearts = [];       // tickers con corazón, el más reciente primero
+let lastSaltosState = null;  // para re-renderizar al marcar/desmarcar sin esperar el poll
 
 const SALTO_BADGES = {
   consolidado: { cls: "consolidado", text: "consolidado" },
@@ -824,26 +826,54 @@ const SALTO_BADGES = {
   salto_baja: { cls: "baja", text: "SALTO ↓ → CALL" },
 };
 
+// Los marcados con corazón van primero (en su orden de marcado); el resto conserva su orden.
+function sortSaltosTickers(tickers) {
+  return [...tickers].sort((a, b) => {
+    const ia = saltosHearts.indexOf(a), ib = saltosHearts.indexOf(b);
+    if (ia !== -1 && ib !== -1) return ia - ib;
+    if (ia !== -1) return -1;
+    if (ib !== -1) return 1;
+    return 0;
+  });
+}
+
 function renderSaltos(st) {
+  lastSaltosState = st;
+  if (st.hearts) saltosHearts = st.hearts;
   const list = document.getElementById("saltosList");
   const hint = document.getElementById("saltosEmptyHint");
   const statusEl = document.getElementById("saltosStatus");
-  const tickers = Object.keys(st.candidates || {});
+  const tickers = sortSaltosTickers(Object.keys(st.candidates || {}));
   const phaseText = { esperando: "esperando premarket", consolidado: "consolidación detectada", evaluado: "salto evaluado" };
   statusEl.textContent = st.updated_at ? `${phaseText[st.phase] || st.phase} · ${st.updated_at}` : "sin escaneo aún";
   list.innerHTML = "";
   tickers.forEach((t) => {
     const c = st.candidates[t];
     const b = SALTO_BADGES[c.status] || SALTO_BADGES.consolidado;
+    const hearted = saltosHearts.includes(t);
     const row = document.createElement("div");
     row.className = "salto-row" + (t === state.symbol ? " active" : "");
     row.innerHTML = `
       <div class="salto-top">
         <span class="wls-ticker">${t}</span>
         <span class="salto-badge ${b.cls}">${b.text}</span>
+        <button class="salto-heart${hearted ? " active" : ""}" title="${hearted ? "Quitar de arriba" : "Fijar arriba"}"><i class="fa-solid fa-heart"></i></button>
       </div>
       <div class="salto-sub">Rango ${c.range_low.toFixed(2)}–${c.range_high.toFixed(2)} ($${c.range_size.toFixed(2)})${c.open_price != null ? ` · apertura $${c.open_price.toFixed(2)}` : ""}</div>`;
-    row.addEventListener("click", () => selectSymbol(t));
+    row.addEventListener("click", (e) => { if (!e.target.closest(".salto-heart")) selectSymbol(t); });
+    row.querySelector(".salto-heart").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        const r = await api(`/api/saltos/hearts/${t}`, { method: "POST" });
+        saltosHearts = r.tickers;
+        if (lastSaltosState) {
+          lastSaltosState.hearts = r.tickers; // que el re-render no pise la lista recién actualizada
+          renderSaltos(lastSaltosState);
+        }
+      } catch (err) {
+        toast("Error al marcar favorito: " + err.message);
+      }
+    });
     list.appendChild(row);
   });
   hint.style.display = tickers.length ? "none" : "block";
