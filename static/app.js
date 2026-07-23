@@ -200,6 +200,7 @@ function createPane(letter, defaultInterval) {
   const pane = {
     letter, container, chart, candleSeries, earningsMarkersPrimitive,
     maSeries: [], maVisible: true, bbSeries: [], bbVisible: false, dailyMaLines: [],
+    dmaVisible: localStorage.getItem(`dmaVisible:${letter}`) !== "0",
     targetPriceLine: null, alarmPriceLines: [],
     interval: defaultInterval, candles: [],
     trendPrimitives: [], drawings: [], selectedDrawingId: null,
@@ -301,7 +302,7 @@ function applyDailyMaLines(pane) {
     if (last == null) return;
     const pl = pane.candleSeries.createPriceLine({
       price: last, color: ma.color, lineWidth: 1, lineStyle: LC.LineStyle.Dashed,
-      axisLabelVisible: pane.maVisible, lineVisible: pane.maVisible,
+      axisLabelVisible: pane.dmaVisible, lineVisible: pane.dmaVisible,
       title: `D1 ${ma.type}${ma.period}`,
     });
     pane.dailyMaLines.push(pl);
@@ -1015,7 +1016,19 @@ document.querySelectorAll(".btn-toggle-ma").forEach((btn) => {
     pane.maVisible = !pane.maVisible;
     btn.classList.toggle("active", pane.maVisible);
     pane.maSeries.forEach((s) => s.applyOptions({ visible: pane.maVisible }));
-    pane.dailyMaLines.forEach((pl) => pl.applyOptions({ lineVisible: pane.maVisible, axisLabelVisible: pane.maVisible }));
+  });
+});
+
+// Niveles de las MAs diarias (líneas punteadas D1) en paneles intradía: toggle propio,
+// independiente del botón de MAs de la temporalidad, con preferencia local por panel.
+document.querySelectorAll(".btn-toggle-dma").forEach((btn) => {
+  const pane = panes[btn.dataset.pane];
+  btn.classList.toggle("active", pane.dmaVisible);
+  btn.addEventListener("click", () => {
+    pane.dmaVisible = !pane.dmaVisible;
+    localStorage.setItem(`dmaVisible:${pane.letter}`, pane.dmaVisible ? "1" : "0");
+    btn.classList.toggle("active", pane.dmaVisible);
+    pane.dailyMaLines.forEach((pl) => pl.applyOptions({ lineVisible: pane.dmaVisible, axisLabelVisible: pane.dmaVisible }));
   });
 });
 
