@@ -3,7 +3,8 @@
 "use strict";
 
 const state = {
-  symbol: "META",
+  symbol: "META",   // símbolo del panel enfocado (espejo de panes[activePane].symbol)
+  activePane: "A",  // panel que recibe los cambios de símbolo de la watchlist
   theme: localStorage.getItem("theme") || "dark",
   maConfig: [],
   maScope: "global",
@@ -176,7 +177,45 @@ async function migrateLocalPersonalization(groups) {
 
 const LC = window.LightweightCharts;
 
+// Genera el DOM de un panel (barra de herramientas + contenedor del gráfico).
+// Todos los paneles nacen en M15 con solo Bandas de Bollinger activas.
+function buildPaneDom(letter) {
+  const div = document.createElement("div");
+  div.className = "chart-pane";
+  div.id = `pane${letter}`;
+  div.innerHTML = `
+    <div class="pane-toolbar">
+      <span class="pane-symbol-label" data-pane="${letter}">—</span>
+      <div class="intervals" data-pane="${letter}">
+        <button data-interval="m15" class="ivl-btn active">M15</button>
+        <button data-interval="m30" class="ivl-btn">M30</button>
+        <button data-interval="1h" class="ivl-btn">1H</button>
+        <button data-interval="1d" class="ivl-btn">D1</button>
+      </div>
+      <button class="btn-refresh-pane tool-btn" data-pane="${letter}" title="Actualizar gráfico"><i class="fa-solid fa-arrows-rotate"></i></button>
+      <button class="btn-toggle-trend tool-btn" data-pane="${letter}" title="Trazar línea de tendencia"><i class="fa-solid fa-arrow-trend-up"></i></button>
+      <button class="btn-toggle-hray tool-btn" data-pane="${letter}" title="Rayo horizontal (un clic)"><i class="fa-solid fa-arrow-right-long"></i></button>
+      <button class="btn-auto-channel tool-btn" data-pane="${letter}" title="Canal automático (sobre las velas visibles)"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+      <button class="btn-clear-drawings tool-btn" data-pane="${letter}" title="Borrar todos los dibujos del símbolo"><i class="fa-solid fa-trash"></i></button>
+      <button class="btn-draw-width tool-btn" data-pane="${letter}" title="Grosor de línea"><span class="width-sample"></span></button>
+      <div class="color-picker-wrap" data-pane="${letter}">
+        <button class="btn-draw-color tool-btn" title="Color de dibujo"><span class="color-dot"></span></button>
+        <div class="color-menu hidden"></div>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn-toggle-ma tool-btn" data-pane="${letter}" title="Mostrar/ocultar medias móviles"><i class="fa-solid fa-wave-square"></i></button>
+      <button class="btn-toggle-dma tool-btn" data-pane="${letter}" title="Mostrar/ocultar niveles de MAs diarias (D1) en intradía">D1</button>
+      <button class="btn-toggle-bb tool-btn active" data-pane="${letter}" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
+    </div>
+    <div class="pane-chart-container" id="chartContainer${letter}">
+      <div class="candle-countdown" id="countdown${letter}"></div>
+    </div>`;
+  document.getElementById("chartPanes").appendChild(div);
+  return div;
+}
+
 function createPane(letter, defaultInterval) {
+  const paneDiv = buildPaneDom(letter);
   const container = document.getElementById(`chartContainer${letter}`);
   const chart = LC.createChart(container, {
     layout: { background: { color: "transparent" }, textColor: "#8b93a1" },
@@ -199,21 +238,40 @@ function createPane(letter, defaultInterval) {
 
   const pane = {
     letter, container, chart, candleSeries, earningsMarkersPrimitive,
-    maSeries: [], maVisible: true, bbSeries: [], bbVisible: false, dailyMaLines: [],
+    symbol: state.symbol,
+    maSeries: [], maVisible: false, bbSeries: [], bbVisible: true, dailyMaLines: [],
     dmaVisible: localStorage.getItem(`dmaVisible:${letter}`) !== "0",
     targetPriceLine: null, alarmPriceLines: [],
     interval: defaultInterval, candles: [],
+    maConfig: [], dailyCandles: [], targetPrice: null, alarms: [], earnings: [],
     trendPrimitives: [], drawings: [], selectedDrawingId: null,
     drawMode: false, pendingPoint: null, previewPrimitive: null,
   };
+
+  // Clic en cualquier parte del panel lo convierte en el panel enfocado (el que
+  // recibe los cambios de símbolo desde la lista de seguimiento).
+  paneDiv.addEventListener("mousedown", () => {
+    if (state.activePane !== letter) setActivePane(letter);
+  });
 
   // autoSize se encarga del redimensionado; no se re-encuadra el histórico completo
   // para no perder el zoom en lo último del precio.
   return pane;
 }
 
-const panes = { A: createPane("A", "1d"), B: createPane("B", "m15") };
+const panes = {
+  A: createPane("A", "m15"), B: createPane("B", "m15"),
+  C: createPane("C", "m15"), D: createPane("D", "m15"),
+};
 Object.values(panes).forEach((p) => setupDrawingTool(p));
+
+function setActivePane(letter) {
+  state.activePane = letter;
+  state.symbol = panes[letter].symbol;
+  document.querySelectorAll(".chart-pane").forEach((el) => el.classList.toggle("focused", el.id === `pane${letter}`));
+  document.querySelectorAll(".wl-symbol").forEach((el) => el.classList.toggle("active", el.dataset.ticker === state.symbol));
+  updateCurrentPrice();
+}
 
 function applyChartTheme() {
   const dark = state.theme === "dark";
@@ -266,7 +324,7 @@ function renderMAs(pane) {
   const closes = pane.candles.map((c) => c.close);
   const times = pane.candles.map((c) => c.time);
 
-  state.maConfig.forEach((ma) => {
+  pane.maConfig.forEach((ma) => {
     if (!ma.enabled) return;
     const values = ma.type === "EMA" ? ema(closes, ma.period) : sma(closes, ma.period);
     const data = [];
@@ -282,17 +340,15 @@ function renderMAs(pane) {
   });
 }
 
-function renderAllMAs() { Object.values(panes).forEach((p) => renderMAs(p)); }
-
 // Referencia fija del nivel de las MAs de D1 en paneles intradía (M15/1H), con línea
 // punteada para distinguirlas de las MAs nativas de esa temporalidad.
 function applyDailyMaLines(pane) {
   pane.dailyMaLines.forEach((pl) => { try { pane.candleSeries.removePriceLine(pl); } catch (_) {} });
   pane.dailyMaLines = [];
-  if (pane.interval === "1d" || !state.dailyCandles.length) return;
+  if (pane.interval === "1d" || !pane.dailyCandles.length) return;
 
-  const closes = state.dailyCandles.map((c) => c.close);
-  state.maConfig.forEach((ma) => {
+  const closes = pane.dailyCandles.map((c) => c.close);
+  pane.maConfig.forEach((ma) => {
     if (!ma.enabled) return;
     const values = ma.type === "EMA" ? ema(closes, ma.period) : sma(closes, ma.period);
     let last = null;
@@ -309,15 +365,13 @@ function applyDailyMaLines(pane) {
   });
 }
 
-function renderAllDailyMaLines() { Object.values(panes).forEach((p) => applyDailyMaLines(p)); }
-
-async function loadDailyReference() {
+async function loadDailyReference(pane) {
   try {
-    state.dailyCandles = await api(`/api/candles/${state.symbol}/1d`);
+    pane.dailyCandles = await api(`/api/candles/${pane.symbol}/1d`);
   } catch (_) {
-    state.dailyCandles = [];
+    pane.dailyCandles = [];
   }
-  renderAllDailyMaLines();
+  applyDailyMaLines(pane);
 }
 
 // ---------------- bandas de bollinger (20, 2) ----------------
@@ -617,8 +671,8 @@ function selectDrawing(pane, id) {
 }
 
 async function deleteDrawing(pane, id) {
-  const arr = getSymbolDrawings(state.symbol).filter((d) => d.id !== id);
-  setSymbolDrawings(state.symbol, arr);
+  const arr = getSymbolDrawings(pane.symbol).filter((d) => d.id !== id);
+  setSymbolDrawings(pane.symbol, arr);
   if (pane.selectedDrawingId === id) pane.selectedDrawingId = null;
   loadAllDrawings();
 }
@@ -673,17 +727,17 @@ async function onDragEnd() {
   const drag = activeDrag;
   activeDrag = null;
   if (!drag) return;
-  const arr = getSymbolDrawings(state.symbol);
+  const arr = getSymbolDrawings(drag.pane.symbol);
   const rec = arr.find((d) => d.id === drag.id);
   if (rec) {
     const base = { color: drag.p.options.color, width: drag.p.options.width };
     rec.data = drag.p.__type === "hray"
       ? { ...rec.data, ...base, p1: drag.p.p1 }
       : { ...rec.data, ...base, p1: drag.p.p1, p2: drag.p.p2 };
-    setSymbolDrawings(state.symbol, arr);
+    setSymbolDrawings(drag.pane.symbol, arr);
   }
-  // Sincroniza el mismo dibujo en la otra pantalla.
-  Object.values(panes).forEach((p) => { if (p !== drag.pane) loadDrawings(p); });
+  // Sincroniza el mismo dibujo en los demás paneles que muestran este símbolo.
+  Object.values(panes).forEach((p) => { if (p !== drag.pane && p.symbol === drag.pane.symbol) loadDrawings(p); });
 }
 
 function clearPreview(pane) {
@@ -726,7 +780,7 @@ function renderDrawing(pane, d) {
 
 async function loadDrawings(pane) {
   clearDrawingSeries(pane);
-  pane.drawings = getSymbolDrawings(state.symbol);
+  pane.drawings = getSymbolDrawings(pane.symbol);
   pane.drawings.forEach((d) => renderDrawing(pane, d));
 }
 
@@ -736,21 +790,21 @@ function loadAllDrawings() {
 }
 
 function recolorDrawing(pane, id, color) {
-  const arr = getSymbolDrawings(state.symbol);
+  const arr = getSymbolDrawings(pane.symbol);
   const rec = arr.find((d) => d.id === id);
   if (!rec) return;
   rec.data.color = color;
-  setSymbolDrawings(state.symbol, arr);
+  setSymbolDrawings(pane.symbol, arr);
   loadAllDrawings();
   selectDrawing(pane, id);
 }
 
 function rewidthDrawing(pane, id, width) {
-  const arr = getSymbolDrawings(state.symbol);
+  const arr = getSymbolDrawings(pane.symbol);
   const rec = arr.find((d) => d.id === id);
   if (!rec) return;
   rec.data.width = width;
-  setSymbolDrawings(state.symbol, arr);
+  setSymbolDrawings(pane.symbol, arr);
   loadAllDrawings();
   selectDrawing(pane, id);
 }
@@ -761,12 +815,12 @@ function refreshWidthBtns() {
   document.querySelectorAll(".btn-draw-width").forEach((b) => { b.title = `Grosor de línea: ${w} px (clic para alternar)`; });
 }
 
-// Borra TODOS los dibujos del símbolo actual (se reflejan en ambas pantallas).
-function clearAllDrawings() {
-  const arr = getSymbolDrawings(state.symbol);
-  if (!arr.length) { toast(`No hay dibujos en ${state.symbol}.`); return; }
-  if (!confirm(`¿Borrar los ${arr.length} dibujo(s) de ${state.symbol}?`)) return;
-  setSymbolDrawings(state.symbol, []);
+// Borra TODOS los dibujos del símbolo de ese panel (se reflejan en todos los paneles).
+function clearAllDrawings(pane) {
+  const arr = getSymbolDrawings(pane.symbol);
+  if (!arr.length) { toast(`No hay dibujos en ${pane.symbol}.`); return; }
+  if (!confirm(`¿Borrar los ${arr.length} dibujo(s) de ${pane.symbol}?`)) return;
+  setSymbolDrawings(pane.symbol, []);
   loadAllDrawings();
 }
 
@@ -806,12 +860,12 @@ function autoChannel(pane) {
   const color = getDrawColor();
   const width = getDrawWidth();
   const tag = `channel-${pane.interval}`;
-  const arr = getSymbolDrawings(state.symbol).filter((d) => !(d.data && d.data.auto === tag));
+  const arr = getSymbolDrawings(pane.symbol).filter((d) => !(d.data && d.data.auto === tag));
   arr.push(
     { id: nextDrawingId(), type: "trend", data: { p1: { time: t1, price: y1 + upOff }, p2: { time: t2, price: y2 + upOff }, color, width, auto: tag } },
     { id: nextDrawingId(), type: "trend", data: { p1: { time: t1, price: y1 - downOff }, p2: { time: t2, price: y2 - downOff }, color, width, auto: tag } },
   );
-  setSymbolDrawings(state.symbol, arr);
+  setSymbolDrawings(pane.symbol, arr);
   loadAllDrawings();
   toast(`Canal automático sobre ${n} velas de ${pane.interval.toUpperCase()}.`);
 }
@@ -822,7 +876,7 @@ function setupDrawingTool(pane) {
   const hrayBtn = document.querySelector(`.btn-toggle-hray[data-pane="${pane.letter}"]`);
   hrayBtn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "hray" ? null : "hray"));
   document.querySelector(`.btn-auto-channel[data-pane="${pane.letter}"]`).addEventListener("click", () => autoChannel(pane));
-  document.querySelector(`.btn-clear-drawings[data-pane="${pane.letter}"]`).addEventListener("click", clearAllDrawings);
+  document.querySelector(`.btn-clear-drawings[data-pane="${pane.letter}"]`).addEventListener("click", () => clearAllDrawings(pane));
 
   // Paleta de color: cambia el color para los próximos dibujos y, si hay un
   // dibujo seleccionado en este panel, lo recolorea al instante.
@@ -881,9 +935,9 @@ function setupDrawingTool(pane) {
     if (price === null) return;
 
     if (pane.drawMode === "hray") {
-      const arr = getSymbolDrawings(state.symbol);
+      const arr = getSymbolDrawings(pane.symbol);
       arr.push({ id: nextDrawingId(), type: "hray", data: { p1: { time: param.time, price }, color: getDrawColor(), width: getDrawWidth() } });
-      setSymbolDrawings(state.symbol, arr);
+      setSymbolDrawings(pane.symbol, arr);
       loadAllDrawings();
       setDrawMode(pane, null);
       return;
@@ -896,9 +950,9 @@ function setupDrawingTool(pane) {
       const p2 = { time: param.time, price };
       pane.pendingPoint = null;
       clearPreview(pane);
-      const arr = getSymbolDrawings(state.symbol);
+      const arr = getSymbolDrawings(pane.symbol);
       arr.push({ id: nextDrawingId(), type: "trend", data: { p1, p2, color: getDrawColor(), width: getDrawWidth() } });
-      setSymbolDrawings(state.symbol, arr);
+      setSymbolDrawings(pane.symbol, arr);
       loadAllDrawings();
       setDrawMode(pane, null);
     }
@@ -948,7 +1002,7 @@ function focusLatest(pane) {
 
 async function loadCandles(pane, forceRefresh) {
   const qs = forceRefresh ? "?refresh=true" : "";
-  pane.candles = await api(`/api/candles/${state.symbol}/${pane.interval}${qs}`);
+  pane.candles = await api(`/api/candles/${pane.symbol}/${pane.interval}${qs}`);
   pane.candleSeries.setData(pane.candles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
   focusLatest(pane);
   // Reactiva el auto-escalado del eje de precios: al cambiar de activo (o temporalidad)
@@ -959,18 +1013,19 @@ async function loadCandles(pane, forceRefresh) {
   renderBollinger(pane);
   updateEarningsMarkers(pane);
   await loadDrawings(pane);
-  if (pane.letter === "A") updateCurrentPrice();
+  if (pane.letter === state.activePane) updateCurrentPrice();
 }
 
 async function updateCurrentPrice() {
-  document.getElementById("curSymbol").textContent = state.symbol;
-  const candles = panes.A.candles;
+  const fp = panes[state.activePane];
+  document.getElementById("curSymbol").textContent = fp.symbol;
+  const candles = fp.candles;
   if (!candles.length) return;
   const last = candles[candles.length - 1];
   const prev = candles.length > 1 ? candles[candles.length - 2].close : last.open;
   renderPrice(last.close, prev);
   try {
-    const r = await api(`/api/price/${state.symbol}`);
+    const r = await api(`/api/price/${fp.symbol}`);
     renderPrice(r.price, prev);
   } catch (_) {}
 }
@@ -985,13 +1040,24 @@ function renderPrice(price, prev) {
   changeEl.className = "change " + (diff >= 0 ? "up" : "down");
 }
 
-async function selectSymbol(ticker) {
-  state.symbol = ticker.toUpperCase();
-  document.querySelectorAll(".wl-symbol").forEach((el) => el.classList.toggle("active", el.dataset.ticker === state.symbol));
+// Carga todos los datos de un panel para su símbolo actual.
+async function loadPaneData(pane) {
+  const lbl = document.querySelector(`.pane-symbol-label[data-pane="${pane.letter}"]`);
+  if (lbl) lbl.textContent = pane.symbol;
   await Promise.all([
-    loadCandles(panes.A), loadCandles(panes.B),
-    loadMAConfig(), loadAlarms(), loadEarnings(), loadTargetPrice(), loadDailyReference(),
+    loadCandles(pane), loadMAConfig(pane), loadAlarms(pane), loadEarnings(pane),
+    loadTargetPrice(pane), loadDailyReference(pane),
   ]);
+}
+
+// Cambia el símbolo del panel ENFOCADO (clic en un panel para enfocarlo).
+async function selectSymbol(ticker) {
+  const pane = panes[state.activePane];
+  pane.symbol = ticker.toUpperCase();
+  state.symbol = pane.symbol;
+  document.querySelectorAll(".wl-symbol").forEach((el) => el.classList.toggle("active", el.dataset.ticker === state.symbol));
+  await loadPaneData(pane);
+  updateCurrentPrice();
 }
 
 document.querySelectorAll(".btn-refresh-pane").forEach((btn) => {
@@ -1000,8 +1066,8 @@ document.querySelectorAll(".btn-refresh-pane").forEach((btn) => {
     btn.disabled = true;
     try {
       await loadCandles(pane, true);
-      applyDailyMaLines(pane); // mismo símbolo: state.dailyCandles ya es válido, sin condición de carrera
-      toast(`${state.symbol} (${pane.interval}) actualizado con los últimos datos.`);
+      applyDailyMaLines(pane); // mismo símbolo: pane.dailyCandles ya es válido
+      toast(`${pane.symbol} (${pane.interval}) actualizado con los últimos datos.`);
     } catch (e) {
       toast("Error al actualizar: " + e.message);
     } finally {
@@ -1050,7 +1116,7 @@ document.querySelectorAll(".intervals").forEach((group) => {
       pane.interval = btn.dataset.interval;
       pane.chart.applyOptions({ timeScale: { timeVisible: pane.interval !== "1d" } });
       await loadCandles(pane);
-      applyDailyMaLines(pane); // mismo símbolo: state.dailyCandles ya es válido, sin condición de carrera
+      applyDailyMaLines(pane); // mismo símbolo: pane.dailyCandles ya es válido
     });
   });
 });
@@ -1059,31 +1125,72 @@ document.querySelectorAll(".intervals").forEach((group) => {
 
 const chartPanesEl = document.getElementById("chartPanes");
 const btnSplitView = document.getElementById("btnSplitView");
-let splitViewEnabled = localStorage.getItem("splitView") === "1";
+// Diseños: 1 panel, 2 en fila, o 4 en cuadrícula (2 arriba y 2 abajo). El botón cicla.
+const LAYOUT_ORDER = ["1", "2", "4"];
+const LAYOUT_PANES = { "1": ["A"], "2": ["A", "B"], "4": ["A", "B", "C", "D"] };
+let layoutMode = LAYOUT_ORDER.includes(localStorage.getItem("layoutMode")) ? localStorage.getItem("layoutMode") : "1";
 
-function applySplitView() {
-  chartPanesEl.classList.toggle("split", splitViewEnabled);
-  btnSplitView.classList.toggle("active", splitViewEnabled);
-  requestAnimationFrame(() => Object.values(panes).forEach((p) => focusLatest(p)));
+function visiblePanes() { return LAYOUT_PANES[layoutMode].map((l) => panes[l]); }
+
+function applyLayout() {
+  chartPanesEl.classList.remove("layout-1", "layout-2", "layout-4");
+  chartPanesEl.classList.add(`layout-${layoutMode}`);
+  btnSplitView.classList.toggle("active", layoutMode !== "1");
+  btnSplitView.title = `Diseño: ${layoutMode} panel(es) — clic para cambiar (1 → 2 → 4)`;
+  if (!LAYOUT_PANES[layoutMode].includes(state.activePane)) setActivePane("A");
+  requestAnimationFrame(() => visiblePanes().forEach((p) => focusLatest(p)));
+  // Paneles recién visibles que aún no tienen datos: se cargan ahora. El enfoque a las
+  // últimas velas se reaplica tras la carga, porque si el gráfico aún no tenía tamaño
+  // real cuando llegaron los datos, el setVisibleLogicalRange inicial no surte efecto.
+  visiblePanes().forEach((p) => {
+    if (!p.candles.length) loadPaneData(p).then(() => setTimeout(() => focusLatest(p), 150));
+  });
 }
 
 btnSplitView.addEventListener("click", () => {
-  splitViewEnabled = !splitViewEnabled;
-  localStorage.setItem("splitView", splitViewEnabled ? "1" : "0");
-  applySplitView();
+  layoutMode = LAYOUT_ORDER[(LAYOUT_ORDER.indexOf(layoutMode) + 1) % LAYOUT_ORDER.length];
+  localStorage.setItem("layoutMode", layoutMode);
+  applyLayout();
 });
 
-applySplitView();
+// ---------------- cuenta atrás de la vela en curso ----------------
+
+const INTERVAL_SECONDS = { m15: 900, m30: 1800, "1h": 3600 };
+
+function updateCountdowns() {
+  // Hora del mercado (Nueva York), con horario de verano correcto.
+  const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const dow = et.getDay();
+  const secs = et.getHours() * 3600 + et.getMinutes() * 60 + et.getSeconds();
+  const open = 9 * 3600 + 30 * 60, close = 16 * 3600;
+  const marketOpen = dow >= 1 && dow <= 5 && secs >= open && secs < close;
+  Object.values(panes).forEach((pane) => {
+    const el = document.getElementById(`countdown${pane.letter}`);
+    if (!el) return;
+    if (!marketOpen) { el.textContent = "mercado cerrado"; return; }
+    let remain;
+    if (pane.interval === "1d") {
+      remain = close - secs;
+    } else {
+      const step = INTERVAL_SECONDS[pane.interval] || 900;
+      remain = Math.min(step - ((secs - open) % step), close - secs);
+    }
+    const h = Math.floor(remain / 3600), m = Math.floor((remain % 3600) / 60), s = remain % 60;
+    el.textContent = "vela: " + (h ? `${h}:` : "") + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  });
+}
+setInterval(updateCountdowns, 1000);
+updateCountdowns();
 
 // ---------------- target price (línea horizontal automática) ----------------
 
-async function loadTargetPrice() {
+async function loadTargetPrice(pane) {
   try {
-    state.targetPrice = await api(`/api/target-price/${state.symbol}`);
+    pane.targetPrice = await api(`/api/target-price/${pane.symbol}`);
   } catch (_) {
-    state.targetPrice = null;
+    pane.targetPrice = null;
   }
-  Object.values(panes).forEach((p) => applyTargetPriceLine(p));
+  applyTargetPriceLine(pane);
 }
 
 function applyTargetPriceLine(pane) {
@@ -1091,11 +1198,11 @@ function applyTargetPriceLine(pane) {
     try { pane.candleSeries.removePriceLine(pane.targetPriceLine); } catch (_) {}
     pane.targetPriceLine = null;
   }
-  if (state.targetPrice && state.targetPrice.average) {
+  if (pane.targetPrice && pane.targetPrice.average) {
     pane.targetPriceLine = pane.candleSeries.createPriceLine({
-      price: state.targetPrice.average, color: "#facc15", lineWidth: 2,
+      price: pane.targetPrice.average, color: "#facc15", lineWidth: 2,
       lineStyle: LC.LineStyle.Solid, axisLabelVisible: true,
-      title: `Target $${state.targetPrice.average.toFixed(2)}`,
+      title: `Target $${pane.targetPrice.average.toFixed(2)}`,
     });
   }
 }
@@ -1511,29 +1618,28 @@ function renderSearchResults(results) {
 
 // ---------------- MA config ----------------
 
-async function loadMAConfig() {
-  const r = await api(`/api/ma-config?symbol=${state.symbol}`);
-  state.maConfig = r.config;
-  state.maScope = r.scope;
-  renderAllMAs();
-  renderAllDailyMaLines();
+async function loadMAConfig(pane) {
+  const r = await api(`/api/ma-config?symbol=${pane.symbol}`);
+  pane.maConfig = r.config;
+  renderMAs(pane);
+  applyDailyMaLines(pane);
 }
 
 // ---------------- alarms (solo líneas en el gráfico; el panel de gestión se quitó) ----------------
 
-async function loadAlarms() {
+async function loadAlarms(pane) {
   try {
-    state.alarms = await api(`/api/alarms?symbol=${state.symbol}`);
+    pane.alarms = await api(`/api/alarms?symbol=${pane.symbol}`);
   } catch (_) {
-    state.alarms = [];
+    pane.alarms = [];
   }
-  Object.values(panes).forEach((p) => applyAlarmPriceLines(p));
+  applyAlarmPriceLines(pane);
 }
 
 function applyAlarmPriceLines(pane) {
   pane.alarmPriceLines.forEach((pl) => { try { pane.candleSeries.removePriceLine(pl); } catch (_) {} });
   pane.alarmPriceLines = [];
-  state.alarms.filter((a) => a.active).forEach((a) => {
+  pane.alarms.filter((a) => a.active).forEach((a) => {
     const pl = pane.candleSeries.createPriceLine({
       price: a.price, color: "#ef4444", lineWidth: 1, lineStyle: LC.LineStyle.Dotted,
       axisLabelVisible: true, title: "alarma",
@@ -1551,7 +1657,7 @@ async function pollAlarmEvents() {
       toast(msg, true, "fa-bell");
       notifyBrowser("Alarma: " + ev.symbol, msg);
       beep();
-      if (ev.symbol === state.symbol) loadAlarms();
+      Object.values(panes).forEach((p) => { if (p.symbol === ev.symbol) loadAlarms(p); });
     });
   } catch (_) {}
   setTimeout(pollAlarmEvents, 20000);
@@ -1569,23 +1675,23 @@ const TIME_SHORT = { AMC: "AMC", BMO: "BMO", "": "" };
 
 // Solo se usa para alimentar los marcadores "E" en el gráfico diario y el badge
 // de próximo reporte en la watchlist (vía /api/earnings/next-all en loadWatchlist).
-async function loadEarnings() {
+async function loadEarnings(pane) {
   try {
-    const result = await api(`/api/earnings/${state.symbol}`);
-    state.earnings = result.earnings;
+    const result = await api(`/api/earnings/${pane.symbol}`);
+    pane.earnings = result.earnings;
   } catch (_) {
-    state.earnings = [];
+    pane.earnings = [];
   }
-  Object.values(panes).forEach((p) => updateEarningsMarkers(p));
+  updateEarningsMarkers(pane);
 }
 
 function updateEarningsMarkers(pane) {
-  if (pane.interval !== "1d" || !state.earnings.length) {
+  if (pane.interval !== "1d" || !pane.earnings.length) {
     pane.earningsMarkersPrimitive.setMarkers([]);
     return;
   }
   const candleTimes = new Set(pane.candles.map((c) => c.time));
-  const markers = state.earnings
+  const markers = pane.earnings
     .filter((e) => candleTimes.has(e.ts))
     .map((e) => ({ time: e.ts, position: "belowBar", color: "#a855f7", shape: "circle", text: "E" }));
   pane.earningsMarkersPrimitive.setMarkers(markers);
@@ -1606,18 +1712,19 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 // ---------------- snapshot ----------------
 
 document.getElementById("btnSnapshot").addEventListener("click", async () => {
-  const canvas = panes.A.chart.takeScreenshot();
+  const fp = panes[state.activePane];
+  const canvas = fp.chart.takeScreenshot();
   const dataUrl = canvas.toDataURL("image/png");
   try {
     await api("/api/snapshot", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol: state.symbol, interval: panes.A.interval, image: dataUrl }),
+      body: JSON.stringify({ symbol: fp.symbol, interval: fp.interval, image: dataUrl }),
     });
     toast("Captura guardada en la carpeta capturas/.");
   } catch (e) { toast("Error al guardar captura: " + e.message); }
   const a = document.createElement("a");
   a.href = dataUrl;
-  a.download = `${state.symbol}_${panes.A.interval}.png`;
+  a.download = `${fp.symbol}_${fp.interval}.png`;
   a.click();
 });
 
@@ -1663,7 +1770,8 @@ setLeftCollapsed(localStorage.getItem("leftCollapsed") === "1");
     Notification.requestPermission();
   }
   await loadWatchlist();
-  await selectSymbol(state.symbol);
+  setActivePane("A");
+  applyLayout(); // carga los paneles visibles (los que no tienen velas aún)
   pollAlarmEvents();
   loadTrendScan();
   pollSaltos();

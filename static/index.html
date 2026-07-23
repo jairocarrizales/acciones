@@ -27,7 +27,7 @@
     </div>
 
     <div class="top-actions">
-      <button id="btnSplitView" title="Vista dividida (dos temporalidades)"><i class="fa-solid fa-table-columns"></i></button>
+      <button id="btnSplitView" title="Diseño de paneles: 1 / 2 / 4"><i class="fa-solid fa-table-columns"></i></button>
       <button id="btnSnapshot" title="Guardar captura"><i class="fa-solid fa-camera"></i></button>
       <button id="btnTheme" title="Cambiar tema"><i id="themeIcon" class="fa-solid fa-moon"></i></button>
       <button id="btnSettings" title="Configuración"><i class="fa-solid fa-gear"></i></button>
@@ -76,58 +76,8 @@
   </aside>
 
   <main id="chartArea">
-    <div class="chart-panes" id="chartPanes">
-      <div class="chart-pane" id="paneA">
-        <div class="pane-toolbar">
-          <div class="intervals" data-pane="A">
-            <button data-interval="m15" class="ivl-btn">M15</button>
-            <button data-interval="m30" class="ivl-btn">M30</button>
-            <button data-interval="1h" class="ivl-btn">1H</button>
-            <button data-interval="1d" class="ivl-btn active">D1</button>
-          </div>
-          <button class="btn-refresh-pane tool-btn" data-pane="A" title="Actualizar gráfico"><i class="fa-solid fa-arrows-rotate"></i></button>
-          <button class="btn-toggle-trend tool-btn" data-pane="A" title="Trazar línea de tendencia"><i class="fa-solid fa-arrow-trend-up"></i></button>
-          <button class="btn-toggle-hray tool-btn" data-pane="A" title="Rayo horizontal (un clic)"><i class="fa-solid fa-arrow-right-long"></i></button>
-          <button class="btn-auto-channel tool-btn" data-pane="A" title="Canal automático (sobre las velas visibles)"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-          <button class="btn-clear-drawings tool-btn" data-pane="A" title="Borrar todos los dibujos del símbolo"><i class="fa-solid fa-trash"></i></button>
-          <button class="btn-draw-width tool-btn" data-pane="A" title="Grosor de línea"><span class="width-sample"></span></button>
-          <div class="color-picker-wrap" data-pane="A">
-            <button class="btn-draw-color tool-btn" title="Color de dibujo"><span class="color-dot"></span></button>
-            <div class="color-menu hidden"></div>
-          </div>
-          <span class="spacer"></span>
-          <button class="btn-toggle-ma tool-btn active" data-pane="A" title="Mostrar/ocultar medias móviles"><i class="fa-solid fa-wave-square"></i></button>
-          <button class="btn-toggle-dma tool-btn" data-pane="A" title="Mostrar/ocultar niveles de MAs diarias (D1) en intradía">D1</button>
-          <button class="btn-toggle-bb tool-btn" data-pane="A" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
-        </div>
-        <div class="pane-chart-container" id="chartContainerA"></div>
-      </div>
-      <div class="chart-pane" id="paneB">
-        <div class="pane-toolbar">
-          <div class="intervals" data-pane="B">
-            <button data-interval="m15" class="ivl-btn active">M15</button>
-            <button data-interval="m30" class="ivl-btn">M30</button>
-            <button data-interval="1h" class="ivl-btn">1H</button>
-            <button data-interval="1d" class="ivl-btn">D1</button>
-          </div>
-          <button class="btn-refresh-pane tool-btn" data-pane="B" title="Actualizar gráfico"><i class="fa-solid fa-arrows-rotate"></i></button>
-          <button class="btn-toggle-trend tool-btn" data-pane="B" title="Trazar línea de tendencia"><i class="fa-solid fa-arrow-trend-up"></i></button>
-          <button class="btn-toggle-hray tool-btn" data-pane="B" title="Rayo horizontal (un clic)"><i class="fa-solid fa-arrow-right-long"></i></button>
-          <button class="btn-auto-channel tool-btn" data-pane="B" title="Canal automático (sobre las velas visibles)"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-          <button class="btn-clear-drawings tool-btn" data-pane="B" title="Borrar todos los dibujos del símbolo"><i class="fa-solid fa-trash"></i></button>
-          <button class="btn-draw-width tool-btn" data-pane="B" title="Grosor de línea"><span class="width-sample"></span></button>
-          <div class="color-picker-wrap" data-pane="B">
-            <button class="btn-draw-color tool-btn" title="Color de dibujo"><span class="color-dot"></span></button>
-            <div class="color-menu hidden"></div>
-          </div>
-          <span class="spacer"></span>
-          <button class="btn-toggle-ma tool-btn active" data-pane="B" title="Mostrar/ocultar medias móviles"><i class="fa-solid fa-wave-square"></i></button>
-          <button class="btn-toggle-dma tool-btn" data-pane="B" title="Mostrar/ocultar niveles de MAs diarias (D1) en intradía">D1</button>
-          <button class="btn-toggle-bb tool-btn" data-pane="B" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
-        </div>
-        <div class="pane-chart-container" id="chartContainerB"></div>
-      </div>
-    </div>
+    <!-- Los paneles (hasta 4) se generan desde app.js -->
+    <div class="chart-panes" id="chartPanes"></div>
   </main>
 
 </div>
