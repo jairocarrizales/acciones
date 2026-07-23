@@ -739,11 +739,67 @@ function recolorDrawing(pane, id, color) {
   selectDrawing(pane, id);
 }
 
+// Borra TODOS los dibujos del símbolo actual (se reflejan en ambas pantallas).
+function clearAllDrawings() {
+  const arr = getSymbolDrawings(state.symbol);
+  if (!arr.length) { toast(`No hay dibujos en ${state.symbol}.`); return; }
+  if (!confirm(`¿Borrar los ${arr.length} dibujo(s) de ${state.symbol}?`)) return;
+  setSymbolDrawings(state.symbol, []);
+  loadAllDrawings();
+}
+
+// Canal automático: regresión lineal sobre las velas visibles del panel y dos
+// paralelas desplazadas hasta envolver todos los máximos y mínimos del tramo
+// (estilo "Regression Trend" de TradingView). Un nuevo canal de la misma
+// temporalidad reemplaza al anterior; canales de D1 y H1 pueden coexistir.
+function autoChannel(pane) {
+  const c = pane.candles;
+  if (c.length < 20) { toast("No hay suficientes velas para calcular el canal."); return; }
+  let from = 0, to = c.length - 1;
+  const vr = pane.chart.timeScale().getVisibleLogicalRange();
+  if (vr) {
+    from = Math.max(0, Math.floor(vr.from));
+    to = Math.min(c.length - 1, Math.ceil(vr.to));
+  }
+  if (to - from < 20) from = Math.max(0, to - 20);
+  const seg = c.slice(from, to + 1);
+  const n = seg.length;
+
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  seg.forEach((k, i) => { sx += i; sy += k.close; sxx += i * i; sxy += i * k.close; });
+  const denom = n * sxx - sx * sx;
+  if (!denom) return;
+  const slope = (n * sxy - sx * sy) / denom;
+  const intercept = (sy - slope * sx) / n;
+
+  let upOff = 0, downOff = 0;
+  seg.forEach((k, i) => {
+    const base = intercept + slope * i;
+    upOff = Math.max(upOff, k.high - base);
+    downOff = Math.max(downOff, base - k.low);
+  });
+
+  const t1 = seg[0].time, t2 = seg[n - 1].time;
+  const y1 = intercept, y2 = intercept + slope * (n - 1);
+  const color = getDrawColor();
+  const tag = `channel-${pane.interval}`;
+  const arr = getSymbolDrawings(state.symbol).filter((d) => !(d.data && d.data.auto === tag));
+  arr.push(
+    { id: nextDrawingId(), type: "trend", data: { p1: { time: t1, price: y1 + upOff }, p2: { time: t2, price: y2 + upOff }, color, auto: tag } },
+    { id: nextDrawingId(), type: "trend", data: { p1: { time: t1, price: y1 - downOff }, p2: { time: t2, price: y2 - downOff }, color, auto: tag } },
+  );
+  setSymbolDrawings(state.symbol, arr);
+  loadAllDrawings();
+  toast(`Canal automático sobre ${n} velas de ${pane.interval.toUpperCase()}.`);
+}
+
 function setupDrawingTool(pane) {
   const btn = document.querySelector(`.btn-toggle-trend[data-pane="${pane.letter}"]`);
   btn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "trend" ? null : "trend"));
   const hrayBtn = document.querySelector(`.btn-toggle-hray[data-pane="${pane.letter}"]`);
   hrayBtn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "hray" ? null : "hray"));
+  document.querySelector(`.btn-auto-channel[data-pane="${pane.letter}"]`).addEventListener("click", () => autoChannel(pane));
+  document.querySelector(`.btn-clear-drawings[data-pane="${pane.letter}"]`).addEventListener("click", clearAllDrawings);
 
   // Paleta de color: cambia el color para los próximos dibujos y, si hay un
   // dibujo seleccionado en este panel, lo recolorea al instante.
