@@ -235,6 +235,10 @@ input, select, textarea {
 #btnSplitView.active,
 .tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+/* grosor de línea para dibujos */
+.btn-draw-width .width-sample { display: block; width: 14px; height: 2px; background: currentColor; border-radius: 1px; }
+.btn-draw-width .width-sample.w1 { height: 1px; }
+
 /* paleta de color para dibujos */
 .color-picker-wrap { position: relative; display: flex; }
 .btn-draw-color .color-dot {

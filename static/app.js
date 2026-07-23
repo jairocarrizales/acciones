@@ -126,6 +126,9 @@ function nextDrawingId() {
 const DRAW_COLORS = ["#2962ff", "#ef4444", "#22c55e", "#f59e0b", "#a855f7", "#ffffff"];
 const getDrawColor = () => localStorage.getItem("drawColor") || DRAW_COLORS[0];
 const setDrawColorPref = (c) => localStorage.setItem("drawColor", c);
+// Grosor de línea para tendencias y rayos: 1 o 2 px (preferencia local).
+const getDrawWidth = () => (parseInt(localStorage.getItem("drawWidth"), 10) === 1 ? 1 : 2);
+const setDrawWidthPref = (w) => localStorage.setItem("drawWidth", String(w));
 
 // Migración v2: fusiona las claves antiguas por símbolo+temporalidad en una sola por símbolo.
 function migrateDrawingsV2() {
@@ -672,9 +675,10 @@ async function onDragEnd() {
   const arr = getSymbolDrawings(state.symbol);
   const rec = arr.find((d) => d.id === drag.id);
   if (rec) {
+    const base = { color: drag.p.options.color, width: drag.p.options.width };
     rec.data = drag.p.__type === "hray"
-      ? { p1: drag.p.p1, color: drag.p.options.color }
-      : { p1: drag.p.p1, p2: drag.p.p2, color: drag.p.options.color };
+      ? { ...rec.data, ...base, p1: drag.p.p1 }
+      : { ...rec.data, ...base, p1: drag.p.p1, p2: drag.p.p2 };
     setSymbolDrawings(state.symbol, arr);
   }
   // Sincroniza el mismo dibujo en la otra pantalla.
@@ -709,9 +713,10 @@ function clearDrawingSeries(pane) {
 
 function renderDrawing(pane, d) {
   const type = d.type || "trend";
+  const opts = { color: d.data.color || getDrawColor(), width: d.data.width || 2 };
   const primitive = type === "hray"
-    ? new HRayPrimitive(pane, d.data.p1, { color: d.data.color || getDrawColor() })
-    : new TrendLinePrimitive(pane, d.data.p1, d.data.p2, { color: d.data.color || getDrawColor() });
+    ? new HRayPrimitive(pane, d.data.p1, opts)
+    : new TrendLinePrimitive(pane, d.data.p1, d.data.p2, opts);
   primitive.__drawingId = d.id;
   primitive.__type = type;
   pane.candleSeries.attachPrimitive(primitive);
@@ -737,6 +742,22 @@ function recolorDrawing(pane, id, color) {
   setSymbolDrawings(state.symbol, arr);
   loadAllDrawings();
   selectDrawing(pane, id);
+}
+
+function rewidthDrawing(pane, id, width) {
+  const arr = getSymbolDrawings(state.symbol);
+  const rec = arr.find((d) => d.id === id);
+  if (!rec) return;
+  rec.data.width = width;
+  setSymbolDrawings(state.symbol, arr);
+  loadAllDrawings();
+  selectDrawing(pane, id);
+}
+
+function refreshWidthBtns() {
+  const w = getDrawWidth();
+  document.querySelectorAll(".btn-draw-width .width-sample").forEach((s) => s.classList.toggle("w1", w === 1));
+  document.querySelectorAll(".btn-draw-width").forEach((b) => { b.title = `Grosor de línea: ${w} px (clic para alternar)`; });
 }
 
 // Borra TODOS los dibujos del símbolo actual (se reflejan en ambas pantallas).
@@ -782,11 +803,12 @@ function autoChannel(pane) {
   const t1 = seg[0].time, t2 = seg[n - 1].time;
   const y1 = intercept, y2 = intercept + slope * (n - 1);
   const color = getDrawColor();
+  const width = getDrawWidth();
   const tag = `channel-${pane.interval}`;
   const arr = getSymbolDrawings(state.symbol).filter((d) => !(d.data && d.data.auto === tag));
   arr.push(
-    { id: nextDrawingId(), type: "trend", data: { p1: { time: t1, price: y1 + upOff }, p2: { time: t2, price: y2 + upOff }, color, auto: tag } },
-    { id: nextDrawingId(), type: "trend", data: { p1: { time: t1, price: y1 - downOff }, p2: { time: t2, price: y2 - downOff }, color, auto: tag } },
+    { id: nextDrawingId(), type: "trend", data: { p1: { time: t1, price: y1 + upOff }, p2: { time: t2, price: y2 + upOff }, color, width, auto: tag } },
+    { id: nextDrawingId(), type: "trend", data: { p1: { time: t1, price: y1 - downOff }, p2: { time: t2, price: y2 - downOff }, color, width, auto: tag } },
   );
   setSymbolDrawings(state.symbol, arr);
   loadAllDrawings();
@@ -822,6 +844,15 @@ function setupDrawingTool(pane) {
     if (pane.selectedDrawingId != null) recolorDrawing(pane, pane.selectedDrawingId, c);
   }));
 
+  // Grosor 1/2 px: alterna la preferencia y, si hay un dibujo seleccionado, se lo aplica.
+  const widthBtn = document.querySelector(`.btn-draw-width[data-pane="${pane.letter}"]`);
+  widthBtn.addEventListener("click", () => {
+    setDrawWidthPref(getDrawWidth() === 1 ? 2 : 1);
+    refreshWidthBtns();
+    if (pane.selectedDrawingId != null) rewidthDrawing(pane, pane.selectedDrawingId, getDrawWidth());
+  });
+  refreshWidthBtns();
+
   // Fase de captura: se intercepta el mousedown ANTES de que llegue al canvas interno de la
   // librería, para que si cae sobre un manejador de la línea seleccionada, el propio chart
   // nunca lo interprete como inicio de un paneo.
@@ -850,7 +881,7 @@ function setupDrawingTool(pane) {
 
     if (pane.drawMode === "hray") {
       const arr = getSymbolDrawings(state.symbol);
-      arr.push({ id: nextDrawingId(), type: "hray", data: { p1: { time: param.time, price }, color: getDrawColor() } });
+      arr.push({ id: nextDrawingId(), type: "hray", data: { p1: { time: param.time, price }, color: getDrawColor(), width: getDrawWidth() } });
       setSymbolDrawings(state.symbol, arr);
       loadAllDrawings();
       setDrawMode(pane, null);
@@ -865,7 +896,7 @@ function setupDrawingTool(pane) {
       pane.pendingPoint = null;
       clearPreview(pane);
       const arr = getSymbolDrawings(state.symbol);
-      arr.push({ id: nextDrawingId(), type: "trend", data: { p1, p2, color: getDrawColor() } });
+      arr.push({ id: nextDrawingId(), type: "trend", data: { p1, p2, color: getDrawColor(), width: getDrawWidth() } });
       setSymbolDrawings(state.symbol, arr);
       loadAllDrawings();
       setDrawMode(pane, null);
@@ -877,7 +908,7 @@ function setupDrawingTool(pane) {
     const price = pane.candleSeries.coordinateToPrice(param.point.y);
     if (price == null) return;
     if (!pane.previewPrimitive) {
-      pane.previewPrimitive = new TrendLinePrimitive(pane, pane.pendingPoint, { time: param.time, price }, { dashed: true });
+      pane.previewPrimitive = new TrendLinePrimitive(pane, pane.pendingPoint, { time: param.time, price }, { dashed: true, width: getDrawWidth() });
       pane.candleSeries.attachPrimitive(pane.previewPrimitive);
     } else {
       pane.previewPrimitive.setPoints(pane.pendingPoint, { time: param.time, price });
