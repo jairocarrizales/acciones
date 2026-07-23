@@ -109,15 +109,42 @@ const getLocalFavs = () => localGet("favTickers", []);
 const setLocalFavs = (a) => localSet("favTickers", a);
 const getLocalHearts = () => localGet("saltosHeartsLocal", []);
 const setLocalHearts = (a) => localSet("saltosHeartsLocal", a);
-const drawingsKey = (sym, ivl) => `drawings:${sym}:${ivl}`;
-const getLocalDrawings = (sym, ivl) => localGet(drawingsKey(sym, ivl), []);
-const setLocalDrawings = (sym, ivl, arr) => localSet(drawingsKey(sym, ivl), arr);
+// Los dibujos se guardan POR SÍMBOLO (no por temporalidad): una línea trazada en
+// una temporalidad se ve también en la otra pantalla y en cualquier temporalidad.
+const symbolDrawingsKey = (sym) => `drawings2:${sym}`;
+const getSymbolDrawings = (sym) => localGet(symbolDrawingsKey(sym), []);
+const setSymbolDrawings = (sym, arr) => localSet(symbolDrawingsKey(sym), arr);
 
 function nextDrawingId() {
   const n = (parseInt(localStorage.getItem("drawingSeq") || "0", 10) || 0) + 1;
   localStorage.setItem("drawingSeq", String(n));
   return n;
 }
+
+// Color de dibujo preferido (local por navegador). Debe declararse antes de crear
+// los paneles, porque setupDrawingTool construye la paleta al inicializar.
+const DRAW_COLORS = ["#2962ff", "#ef4444", "#22c55e", "#f59e0b", "#a855f7", "#ffffff"];
+const getDrawColor = () => localStorage.getItem("drawColor") || DRAW_COLORS[0];
+const setDrawColorPref = (c) => localStorage.setItem("drawColor", c);
+
+// Migración v2: fusiona las claves antiguas por símbolo+temporalidad en una sola por símbolo.
+function migrateDrawingsV2() {
+  if (localStorage.getItem("localDrawingsV2")) return;
+  const merged = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith("drawings:")) continue;
+    const sym = k.split(":")[1];
+    (merged[sym] = merged[sym] || []).push(...localGet(k, []));
+  }
+  Object.entries(merged).forEach(([sym, arr]) => {
+    if (!localStorage.getItem(symbolDrawingsKey(sym))) {
+      setSymbolDrawings(sym, arr.map((d) => ({ type: d.type || "trend", ...d })));
+    }
+  });
+  localStorage.setItem("localDrawingsV2", "1");
+}
+migrateDrawingsV2();
 
 // Importación única desde el servidor: los favoritos/líneas/corazones que existían
 // antes de que la personalización pasara a ser local se copian la primera vez que
@@ -129,13 +156,12 @@ async function migrateLocalPersonalization(groups) {
   if (favs.length && !getLocalFavs().length) setLocalFavs(favs);
   try {
     const all = await api("/api/drawings-all");
-    const byKey = {};
+    const bySym = {};
     all.forEach((d) => {
-      const k = drawingsKey(d.symbol, d.interval);
-      (byKey[k] = byKey[k] || []).push({ id: nextDrawingId(), data: d.data });
+      (bySym[d.symbol] = bySym[d.symbol] || []).push({ id: nextDrawingId(), type: d.type || "trend", data: d.data });
     });
-    Object.entries(byKey).forEach(([k, arr]) => {
-      if (!localStorage.getItem(k)) localStorage.setItem(k, JSON.stringify(arr));
+    Object.entries(bySym).forEach(([sym, arr]) => {
+      if (!localStorage.getItem(symbolDrawingsKey(sym))) setSymbolDrawings(sym, arr);
     });
   } catch (_) {}
   try {
@@ -342,15 +368,14 @@ function renderBollinger(pane) {
 // re-sincronizar posiciones a mano), y al dibujar con ctx.moveTo/lineTo no importa el orden
 // cronológico de los puntos (a diferencia de una LineSeries.setData, que exige orden ascendente).
 
-const DRAW_COLOR = "#2962ff"; // azul por defecto de TradingView
 let activeDrag = null; // solo puede haber un arrastre a la vez en toda la página
 
-function drawHandle(ctx, x, y, scope, square) {
+function drawHandle(ctx, x, y, scope, square, color) {
   const r = 5 * scope.horizontalPixelRatio;
   ctx.beginPath();
   if (square) ctx.rect(x - r, y - r, r * 2, r * 2);
   else ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = square ? "#facc15" : DRAW_COLOR;
+  ctx.fillStyle = square ? "#facc15" : (color || DRAW_COLORS[0]);
   ctx.fill();
   ctx.lineWidth = 2 * scope.horizontalPixelRatio;
   ctx.strokeStyle = "#fff";
@@ -373,8 +398,8 @@ class TrendLinePaneRenderer {
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
       ctx.restore();
       if (o.selected) {
-        drawHandle(ctx, x1, y1, scope, false);
-        drawHandle(ctx, x2, y2, scope, false);
+        drawHandle(ctx, x1, y1, scope, false, o.color);
+        drawHandle(ctx, x2, y2, scope, false, o.color);
         drawHandle(ctx, (x1 + x2) / 2, (y1 + y2) / 2, scope, true);
       }
     });
@@ -389,21 +414,19 @@ class TrendLinePaneView {
   }
   update(chart, series) {
     if (!chart || !series) return;
-    const y1 = series.priceToCoordinate(this._source.p1.price);
-    const y2 = series.priceToCoordinate(this._source.p2.price);
-    const x1 = chart.timeScale().timeToCoordinate(this._source.p1.time);
-    const x2 = chart.timeScale().timeToCoordinate(this._source.p2.time);
-    this._p1px = { x: x1, y: y1 };
-    this._p2px = { x: x2, y: y2 };
+    const pane = this._source._pane;
+    this._p1px = { x: timeToX(pane, this._source.p1.time), y: series.priceToCoordinate(this._source.p1.price) };
+    this._p2px = { x: timeToX(pane, this._source.p2.time), y: series.priceToCoordinate(this._source.p2.price) };
   }
   renderer() { return new TrendLinePaneRenderer(this._p1px, this._p2px, this._source.options); }
 }
 
 class TrendLinePrimitive {
-  constructor(p1, p2, options) {
+  constructor(pane, p1, p2, options) {
+    this._pane = pane;
     this.p1 = p1;
     this.p2 = p2;
-    this.options = { color: DRAW_COLOR, width: 2, selected: false, dashed: false, ...options };
+    this.options = { color: getDrawColor(), width: 2, selected: false, dashed: false, ...options };
     this._paneView = new TrendLinePaneView(this);
     this._chart = null;
     this._series = null;
@@ -423,7 +446,98 @@ class TrendLinePrimitive {
   setSelected(sel) { this.options.selected = sel; this.requestUpdate(); }
 }
 
-function pixelX(pane, time) { return pane.chart.timeScale().timeToCoordinate(time); }
+// ---- rayo horizontal: desde un punto hacia la derecha, sin fin ----
+
+class HRayPaneRenderer {
+  constructor(p, options) { this._p = p; this._options = options; }
+  draw(target) {
+    target.useBitmapCoordinateSpace((scope) => {
+      const p = this._p, o = this._options;
+      if (p.x == null || p.y == null) return;
+      const ctx = scope.context;
+      const x = p.x * scope.horizontalPixelRatio, y = p.y * scope.verticalPixelRatio;
+      if (x > scope.bitmapSize.width) return;
+      ctx.save();
+      ctx.lineWidth = (o.selected ? o.width + 1 : o.width) * scope.horizontalPixelRatio;
+      ctx.strokeStyle = o.color;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(scope.bitmapSize.width, y); ctx.stroke();
+      ctx.restore();
+      if (o.selected) drawHandle(ctx, x, y, scope, false, o.color);
+    });
+  }
+}
+
+class HRayPaneView {
+  constructor(source) { this._source = source; this._ppx = { x: null, y: null }; }
+  update(chart, series) {
+    if (!chart || !series) return;
+    this._ppx = {
+      x: timeToX(this._source._pane, this._source.p1.time),
+      y: series.priceToCoordinate(this._source.p1.price),
+    };
+  }
+  renderer() { return new HRayPaneRenderer(this._ppx, this._source.options); }
+}
+
+class HRayPrimitive {
+  constructor(pane, p1, options) {
+    this._pane = pane;
+    this.p1 = p1;
+    this.options = { color: getDrawColor(), width: 2, selected: false, ...options };
+    this._paneView = new HRayPaneView(this);
+    this._chart = null;
+    this._series = null;
+    this._requestUpdateFn = null;
+  }
+  attached(param) {
+    this._chart = param.chart;
+    this._series = param.series;
+    this._requestUpdateFn = param.requestUpdate;
+    this.requestUpdate();
+  }
+  detached() { this._chart = null; this._series = null; this._requestUpdateFn = null; }
+  updateAllViews() { this._paneView.update(this._chart, this._series); }
+  paneViews() { return [this._paneView]; }
+  requestUpdate() { if (this._requestUpdateFn) this._requestUpdateFn(); }
+  setPoints(p1) { this.p1 = p1; this.requestUpdate(); }
+  setSelected(sel) { this.options.selected = sel; this.requestUpdate(); }
+}
+
+// Convierte un timestamp a coordenada X. Si el timestamp no coincide con ninguna
+// vela de esta temporalidad (p. ej. una línea trazada en D1 vista en M15, o al
+// revés), se interpola entre las velas vecinas o se extrapola en los extremos —
+// así el mismo dibujo se ve en las dos pantallas aunque sus escalas difieran.
+function timeToX(pane, time) {
+  const ts = pane.chart.timeScale();
+  const direct = ts.timeToCoordinate(time);
+  if (direct != null) return direct;
+  const c = pane.candles;
+  if (c.length < 2) return null;
+  const bs = ts.options().barSpacing || 6;
+  const last = c[c.length - 1], first = c[0];
+  if (time >= last.time) {
+    const xl = ts.timeToCoordinate(last.time);
+    if (xl == null) return null;
+    const step = (last.time - c[c.length - 2].time) || 1;
+    return xl + ((time - last.time) / step) * bs;
+  }
+  if (time <= first.time) {
+    const xf = ts.timeToCoordinate(first.time);
+    if (xf == null) return null;
+    const step = (c[1].time - first.time) || 1;
+    return xf - ((first.time - time) / step) * bs;
+  }
+  let lo = 0, hi = c.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (c[mid].time <= time) lo = mid; else hi = mid;
+  }
+  const xa = ts.timeToCoordinate(c[lo].time), xb = ts.timeToCoordinate(c[hi].time);
+  if (xa == null || xb == null) return null;
+  const f = (time - c[lo].time) / (c[hi].time - c[lo].time);
+  return xa + f * (xb - xa);
+}
+
 function pixelY(pane, price) { return pane.candleSeries.priceToCoordinate(price); }
 
 function clampedTimeFromX(pane, x) {
@@ -447,11 +561,17 @@ function hitTestDrawings(pane, x, y) {
   const TOL = 8;
   let best = null, bestDist = TOL;
   for (const p of pane.trendPrimitives) {
-    const x1 = pixelX(pane, p.p1.time), y1 = pixelY(pane, p.p1.price);
-    const x2 = pixelX(pane, p.p2.time), y2 = pixelY(pane, p.p2.price);
-    if (x1 == null || y1 == null || x2 == null || y2 == null) continue;
-    const dist = distToSegment(x, y, x1, y1, x2, y2);
-    if (dist < bestDist) { bestDist = dist; best = p; }
+    const x1 = timeToX(pane, p.p1.time), y1 = pixelY(pane, p.p1.price);
+    if (x1 == null || y1 == null) continue;
+    let dist = null;
+    if (p.__type === "hray") {
+      if (x >= x1 - TOL) dist = Math.abs(y - y1);
+    } else {
+      const x2 = timeToX(pane, p.p2.time), y2 = pixelY(pane, p.p2.price);
+      if (x2 == null || y2 == null) continue;
+      dist = distToSegment(x, y, x1, y1, x2, y2);
+    }
+    if (dist != null && dist < bestDist) { bestDist = dist; best = p; }
   }
   return best;
 }
@@ -459,10 +579,16 @@ function hitTestDrawings(pane, x, y) {
 function hitTestHandle(pane, id, x, y) {
   const p = pane.trendPrimitives.find((pp) => pp.__drawingId === id);
   if (!p) return null;
-  const x1 = pixelX(pane, p.p1.time), y1 = pixelY(pane, p.p1.price);
-  const x2 = pixelX(pane, p.p2.time), y2 = pixelY(pane, p.p2.price);
-  if (x1 == null || y1 == null || x2 == null || y2 == null) return null;
   const R = 10;
+  const x1 = timeToX(pane, p.p1.time), y1 = pixelY(pane, p.p1.price);
+  if (x1 == null || y1 == null) return null;
+  if (p.__type === "hray") {
+    if (Math.hypot(x - x1, y - y1) < R) return "p1";
+    if (x >= x1 && Math.abs(y - y1) < R - 2) return "move";
+    return null;
+  }
+  const x2 = timeToX(pane, p.p2.time), y2 = pixelY(pane, p.p2.price);
+  if (x2 == null || y2 == null) return null;
   if (Math.hypot(x - x1, y - y1) < R) return "p1";
   if (Math.hypot(x - x2, y - y2) < R) return "p2";
   if (Math.hypot(x - (x1 + x2) / 2, y - (y1 + y2) / 2) < R) return "move";
@@ -487,10 +613,10 @@ function selectDrawing(pane, id) {
 }
 
 async function deleteDrawing(pane, id) {
-  const arr = getLocalDrawings(state.symbol, pane.interval).filter((d) => d.id !== id);
-  setLocalDrawings(state.symbol, pane.interval, arr);
+  const arr = getSymbolDrawings(state.symbol).filter((d) => d.id !== id);
+  setSymbolDrawings(state.symbol, arr);
   if (pane.selectedDrawingId === id) pane.selectedDrawingId = null;
-  await loadDrawings(pane);
+  loadAllDrawings();
 }
 
 function startDrag(pane, e, id, mode) {
@@ -498,8 +624,8 @@ function startDrag(pane, e, id, mode) {
   const p = pane.trendPrimitives.find((pp) => pp.__drawingId === id);
   const drag = { pane, id, mode, rect, p };
   if (mode === "move") {
-    drag.origPix1 = { x: pixelX(pane, p.p1.time), y: pixelY(pane, p.p1.price) };
-    drag.origPix2 = { x: pixelX(pane, p.p2.time), y: pixelY(pane, p.p2.price) };
+    drag.origPix1 = { x: timeToX(pane, p.p1.time), y: pixelY(pane, p.p1.price) };
+    if (p.__type !== "hray") drag.origPix2 = { x: timeToX(pane, p.p2.time), y: pixelY(pane, p.p2.price) };
     drag.startX = e.clientX;
     drag.startY = e.clientY;
   }
@@ -514,21 +640,25 @@ function onDragMove(e) {
   const { pane, p } = drag;
   const x = e.clientX - drag.rect.left;
   const y = e.clientY - drag.rect.top;
+  const isRay = p.__type === "hray";
 
   if (drag.mode === "p1" || drag.mode === "p2") {
     const time = clampedTimeFromX(pane, x);
     const price = clampedPriceFromY(pane, y);
     if (time == null || price == null) return;
-    if (drag.mode === "p1") p.setPoints({ time, price }, p.p2);
+    if (isRay) p.setPoints({ time, price });
+    else if (drag.mode === "p1") p.setPoints({ time, price }, p.p2);
     else p.setPoints(p.p1, { time, price });
   } else if (drag.mode === "move") {
     const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
     const t1 = clampedTimeFromX(pane, drag.origPix1.x + dx);
     const pr1 = clampedPriceFromY(pane, drag.origPix1.y + dy);
+    if (t1 == null || pr1 == null) return;
+    if (isRay) { p.setPoints({ time: t1, price: pr1 }); return; }
     const t2 = clampedTimeFromX(pane, drag.origPix2.x + dx);
     const pr2 = clampedPriceFromY(pane, drag.origPix2.y + dy);
-    if (t1 == null || pr1 == null || t2 == null || pr2 == null) return;
+    if (t2 == null || pr2 == null) return;
     p.setPoints({ time: t1, price: pr1 }, { time: t2, price: pr2 });
   }
 }
@@ -539,29 +669,36 @@ async function onDragEnd() {
   const drag = activeDrag;
   activeDrag = null;
   if (!drag) return;
-  const arr = getLocalDrawings(state.symbol, drag.pane.interval);
+  const arr = getSymbolDrawings(state.symbol);
   const rec = arr.find((d) => d.id === drag.id);
   if (rec) {
-    rec.data = { p1: drag.p.p1, p2: drag.p.p2, color: drag.p.options.color };
-    setLocalDrawings(state.symbol, drag.pane.interval, arr);
+    rec.data = drag.p.__type === "hray"
+      ? { p1: drag.p.p1, color: drag.p.options.color }
+      : { p1: drag.p.p1, p2: drag.p.p2, color: drag.p.options.color };
+    setSymbolDrawings(state.symbol, arr);
   }
+  // Sincroniza el mismo dibujo en la otra pantalla.
+  Object.values(panes).forEach((p) => { if (p !== drag.pane) loadDrawings(p); });
 }
 
 function clearPreview(pane) {
   if (pane.previewPrimitive) { pane.candleSeries.detachPrimitive(pane.previewPrimitive); pane.previewPrimitive = null; }
 }
 
-function setDrawMode(pane, armed) {
-  pane.drawMode = armed;
+// mode: null (desarmado) | "trend" (línea de tendencia, 2 clics) | "hray" (rayo horizontal, 1 clic)
+function setDrawMode(pane, mode) {
+  pane.drawMode = mode || null;
   pane.pendingPoint = null;
   clearPreview(pane);
   deselectDrawing(pane);
-  pane.container.classList.toggle("drawing-armed", armed);
-  const btn = document.querySelector(`.btn-toggle-trend[data-pane="${pane.letter}"]`);
-  if (btn) btn.classList.toggle("active", armed);
+  pane.container.classList.toggle("drawing-armed", !!mode);
+  const tbtn = document.querySelector(`.btn-toggle-trend[data-pane="${pane.letter}"]`);
+  const hbtn = document.querySelector(`.btn-toggle-hray[data-pane="${pane.letter}"]`);
+  if (tbtn) tbtn.classList.toggle("active", mode === "trend");
+  if (hbtn) hbtn.classList.toggle("active", mode === "hray");
   // Mientras se traza, se desactiva el paneo/zoom: si no, un clic con el más mínimo
   // movimiento del mouse se interpreta como arrastre de la vista en vez de un clic.
-  pane.chart.applyOptions({ handleScroll: !armed, handleScale: !armed });
+  pane.chart.applyOptions({ handleScroll: !mode, handleScale: !mode });
 }
 
 function clearDrawingSeries(pane) {
@@ -571,21 +708,63 @@ function clearDrawingSeries(pane) {
 }
 
 function renderDrawing(pane, d) {
-  const primitive = new TrendLinePrimitive(d.data.p1, d.data.p2, { color: d.data.color || DRAW_COLOR });
+  const type = d.type || "trend";
+  const primitive = type === "hray"
+    ? new HRayPrimitive(pane, d.data.p1, { color: d.data.color || getDrawColor() })
+    : new TrendLinePrimitive(pane, d.data.p1, d.data.p2, { color: d.data.color || getDrawColor() });
   primitive.__drawingId = d.id;
+  primitive.__type = type;
   pane.candleSeries.attachPrimitive(primitive);
   pane.trendPrimitives.push(primitive);
 }
 
 async function loadDrawings(pane) {
   clearDrawingSeries(pane);
-  pane.drawings = getLocalDrawings(state.symbol, pane.interval);
+  pane.drawings = getSymbolDrawings(state.symbol);
   pane.drawings.forEach((d) => renderDrawing(pane, d));
+}
+
+// El mismo dibujo se ve en ambas pantallas: tras crear/borrar/recolorear se recargan las dos.
+function loadAllDrawings() {
+  Object.values(panes).forEach((p) => loadDrawings(p));
+}
+
+function recolorDrawing(pane, id, color) {
+  const arr = getSymbolDrawings(state.symbol);
+  const rec = arr.find((d) => d.id === id);
+  if (!rec) return;
+  rec.data.color = color;
+  setSymbolDrawings(state.symbol, arr);
+  loadAllDrawings();
+  selectDrawing(pane, id);
 }
 
 function setupDrawingTool(pane) {
   const btn = document.querySelector(`.btn-toggle-trend[data-pane="${pane.letter}"]`);
-  btn.addEventListener("click", () => setDrawMode(pane, !pane.drawMode));
+  btn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "trend" ? null : "trend"));
+  const hrayBtn = document.querySelector(`.btn-toggle-hray[data-pane="${pane.letter}"]`);
+  hrayBtn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "hray" ? null : "hray"));
+
+  // Paleta de color: cambia el color para los próximos dibujos y, si hay un
+  // dibujo seleccionado en este panel, lo recolorea al instante.
+  const colorWrap = document.querySelector(`.color-picker-wrap[data-pane="${pane.letter}"]`);
+  const colorBtn = colorWrap.querySelector(".btn-draw-color");
+  const colorMenu = colorWrap.querySelector(".color-menu");
+  colorMenu.innerHTML = DRAW_COLORS.map((c) => `<button class="color-opt" data-color="${c}" style="background:${c}"></button>`).join("");
+  colorBtn.querySelector(".color-dot").style.background = getDrawColor();
+  colorBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll(".color-menu").forEach((m) => { if (m !== colorMenu) m.classList.add("hidden"); });
+    colorMenu.classList.toggle("hidden");
+  });
+  colorMenu.querySelectorAll(".color-opt").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const c = b.dataset.color;
+    setDrawColorPref(c);
+    document.querySelectorAll(".btn-draw-color .color-dot").forEach((d) => { d.style.background = c; });
+    colorMenu.classList.add("hidden");
+    if (pane.selectedDrawingId != null) recolorDrawing(pane, pane.selectedDrawingId, c);
+  }));
 
   // Fase de captura: se intercepta el mousedown ANTES de que llegue al canvas interno de la
   // librería, para que si cae sobre un manejador de la línea seleccionada, el propio chart
@@ -613,6 +792,15 @@ function setupDrawingTool(pane) {
     const price = pane.candleSeries.coordinateToPrice(param.point.y);
     if (price === null) return;
 
+    if (pane.drawMode === "hray") {
+      const arr = getSymbolDrawings(state.symbol);
+      arr.push({ id: nextDrawingId(), type: "hray", data: { p1: { time: param.time, price }, color: getDrawColor() } });
+      setSymbolDrawings(state.symbol, arr);
+      loadAllDrawings();
+      setDrawMode(pane, null);
+      return;
+    }
+
     if (!pane.pendingPoint) {
       pane.pendingPoint = { time: param.time, price };
     } else {
@@ -620,20 +808,20 @@ function setupDrawingTool(pane) {
       const p2 = { time: param.time, price };
       pane.pendingPoint = null;
       clearPreview(pane);
-      const arr = getLocalDrawings(state.symbol, pane.interval);
-      arr.push({ id: nextDrawingId(), data: { p1, p2, color: DRAW_COLOR } });
-      setLocalDrawings(state.symbol, pane.interval, arr);
-      loadDrawings(pane);
-      setDrawMode(pane, false);
+      const arr = getSymbolDrawings(state.symbol);
+      arr.push({ id: nextDrawingId(), type: "trend", data: { p1, p2, color: getDrawColor() } });
+      setSymbolDrawings(state.symbol, arr);
+      loadAllDrawings();
+      setDrawMode(pane, null);
     }
   });
 
   pane.chart.subscribeCrosshairMove((param) => {
-    if (!pane.drawMode || !pane.pendingPoint || !param.point || !param.time) return;
+    if (pane.drawMode !== "trend" || !pane.pendingPoint || !param.point || !param.time) return;
     const price = pane.candleSeries.coordinateToPrice(param.point.y);
     if (price == null) return;
     if (!pane.previewPrimitive) {
-      pane.previewPrimitive = new TrendLinePrimitive(pane.pendingPoint, { time: param.time, price }, { dashed: true });
+      pane.previewPrimitive = new TrendLinePrimitive(pane, pane.pendingPoint, { time: param.time, price }, { dashed: true });
       pane.candleSeries.attachPrimitive(pane.previewPrimitive);
     } else {
       pane.previewPrimitive.setPoints(pane.pendingPoint, { time: param.time, price });
@@ -641,11 +829,17 @@ function setupDrawingTool(pane) {
   });
 }
 
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".color-picker-wrap")) {
+    document.querySelectorAll(".color-menu").forEach((m) => m.classList.add("hidden"));
+  }
+});
+
 document.addEventListener("keydown", (e) => {
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea") return;
   if (e.key === "Escape") {
-    Object.values(panes).forEach((p) => { if (p.drawMode) setDrawMode(p, false); });
+    Object.values(panes).forEach((p) => { if (p.drawMode) setDrawMode(p, null); });
   } else if (e.key === "Delete") {
     Object.values(panes).forEach((p) => {
       if (p.selectedDrawingId != null) deleteDrawing(p, p.selectedDrawingId);
