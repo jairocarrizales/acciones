@@ -328,7 +328,9 @@ async def _saltos_evaluate(use_last_price=False):
 
 
 async def saltos_watcher():
-    """Escanea cada ~10 min de 7:30 a 9:30 ET y evalúa el gap a las 9:30:05."""
+    """Escanea cada ~10 min de 7:30 a 9:30 ET y evalúa el gap a las 9:30:05.
+    Si el servidor arranca después de las 9:30 sin haber escaneado hoy (p. ej. la PC
+    se reinició), reconstruye la consolidación del premarket y evalúa retroactivamente."""
     last_scan_ts = 0.0
     while True:
         try:
@@ -340,9 +342,13 @@ async def saltos_watcher():
                     if time.time() - last_scan_ts > 600 and not _saltos_state["scanning"]:
                         await _saltos_scan()
                         last_scan_ts = time.time()
-                elif t >= dtime(9, 30, 5) and t < dtime(16, 0) \
-                        and _saltos_state["date"] == today and _saltos_state["phase"] == "consolidado":
-                    await _saltos_evaluate()
+                elif dtime(9, 30, 5) <= t < dtime(16, 0):
+                    if _saltos_state["date"] == today and _saltos_state["phase"] == "consolidado":
+                        await _saltos_evaluate()
+                    elif _saltos_state["date"] != today and not _saltos_state["scanning"]:
+                        # Recuperación: el premarket de hoy no se escaneó (servidor apagado).
+                        await _saltos_scan(cutoff_ts=_premarket_cutoff_ts())
+                        await _saltos_evaluate()
         except Exception:
             pass
         # Cerca de la apertura afinamos el reloj para disparar a las 9:30:05 en punto.

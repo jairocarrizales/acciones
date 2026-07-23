@@ -18,16 +18,17 @@ BB_PERIOD = 20
 BB_MULT = 2.0
 WINDOW = 8              # velas M15 = 2 horas de consolidación
 MIN_WINDOW_CANDLES = 5  # el premarket puede tener huecos en símbolos poco líquidos
-FLAT_MAX_DRIFT_PCT = 0.5  # deriva máxima de cada banda dentro de la ventana, en % del precio
+FLAT_MAX_DRIFT_PCT = 0.6  # deriva máxima de cada banda dentro de la ventana, en % del precio
 DEFAULT_JUMP_PCT = 50.0   # salto mínimo por defecto: 50% del rango consolidado (configurable en la UI)
 
-# Filtros de "mercado lateral" (calibrados con datos reales): la banda media (SMA20)
-# debe ser casi horizontal en una ventana larga que incluye el cierre de la sesión
-# anterior — así se excluyen símbolos que venían en tendencia aunque su premarket
-# inmediato luzca plano — y las bandas no pueden estar demasiado separadas (volatilidad).
+# Filtro de "mercado lateral", recalibrado con datos de DOS días (22 y 23 jul 2026):
+# se mide la deriva NETA de la banda media (SMA20) — dónde termina respecto a dónde
+# empezó — que discrimina tendencia real mejor que el rango max-min (una tarde volátil
+# pero que vuelve al mismo nivel no es tendencia). Umbrales holgados a propósito: es
+# preferible un candidato de más (que simplemente no saltará) a perder un salto real.
 TREND_WINDOW = 24         # velas M15 (~6 h: final de la sesión de ayer + premarket)
-MID_FLAT_MAX_PCT = 0.30   # deriva máxima de la banda media en TREND_WINDOW, % del precio
-MAX_BANDWIDTH_PCT = 1.4   # ancho máximo (sup - inf) al final, % del precio
+MID_NET_MAX_PCT = 0.45    # deriva NETA máxima de la banda media en TREND_WINDOW, % del precio
+MAX_BANDWIDTH_PCT = 1.5   # ancho máximo (sup - inf) al final, % del precio
 
 
 class SaltosError(Exception):
@@ -91,16 +92,16 @@ def detect_consolidation(candles, cutoff_ts=None):
     if drift_up > FLAT_MAX_DRIFT_PCT or drift_lo > FLAT_MAX_DRIFT_PCT:
         return None
 
-    # Lateral de fondo: la banda media (SMA20) casi horizontal en la ventana larga.
-    # Excluye símbolos en tendencia (subiendo o bajando hacia la apertura) cuyo
-    # premarket inmediato luce plano pero no es una consolidación real.
+    # Lateral de fondo: la banda media (SMA20) no debe TERMINAR lejos de donde empezó
+    # en la ventana larga (deriva neta). Excluye símbolos en tendencia hacia la
+    # apertura cuyo premarket inmediato luce plano pero no es consolidación real.
     trend_win = [i for i in range(max(BB_PERIOD - 1, len(candles) - TREND_WINDOW), len(candles))
                  if mid[i] is not None]
     if len(trend_win) < TREND_WINDOW // 2:
         return None
     mid_vals = [mid[i] for i in trend_win]
-    drift_mid = (max(mid_vals) - min(mid_vals)) / last_close * 100
-    if drift_mid > MID_FLAT_MAX_PCT:
+    drift_mid = abs(mid_vals[-1] - mid_vals[0]) / last_close * 100
+    if drift_mid > MID_NET_MAX_PCT:
         return None
 
     # Volatilidad baja: bandas no demasiado separadas al momento del corte.
