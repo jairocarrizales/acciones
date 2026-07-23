@@ -1501,8 +1501,14 @@ function renderSymbol(s, showPremarket) {
   const statusLabel = next ? (STATUS_LABELS[next.status] || next.status) : "";
   const timeLabel = next && next.time_of_day ? TIME_LABELS[next.time_of_day] : "";
   const timeShort = next && next.time_of_day ? ` ${TIME_SHORT[next.time_of_day]}` : "";
+  // Un earnings ya ocurrido (hasta 2 días atrás) se muestra con check verde: explica
+  // los movimientos recientes del activo y desaparece solo pasados esos 2 días.
+  const todayET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const isPastEarnings = next && next.date < todayET;
   const badge = next
-    ? `<span class="wls-earnings ${next.status}" title="Próximo reporte: ${next.date}${timeLabel ? " — " + timeLabel : ""} (${statusLabel})"><i class="fa-solid fa-calendar-days"></i> ${formatShortDate(next.date)}${timeShort}</span>`
+    ? (isPastEarnings
+      ? `<span class="wls-earnings past" title="Reportó el ${next.date}${timeLabel ? " — " + timeLabel : ""}"><i class="fa-solid fa-circle-check"></i> ${formatShortDate(next.date)}${timeShort}</span>`
+      : `<span class="wls-earnings ${next.status}" title="Próximo reporte: ${next.date}${timeLabel ? " — " + timeLabel : ""} (${statusLabel})"><i class="fa-solid fa-calendar-days"></i> ${formatShortDate(next.date)}${timeShort}</span>`)
     : "";
   const isFav = getLocalFavs().includes(s.ticker);
   el.innerHTML = `

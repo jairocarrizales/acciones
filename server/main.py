@@ -426,8 +426,10 @@ class EarningsIn(BaseModel):
 
 @app.get("/api/earnings/next-all")
 def get_next_earnings_all():
+    # Incluye también los reportes de los últimos 2 días: así el badge sigue visible
+    # justo después del earnings (para entender los movimientos) y desaparece solo.
     now_ts = int(datetime.now(tz=timezone.utc).timestamp())
-    return db.get_next_earnings_all(now_ts)
+    return db.get_next_earnings_all(now_ts - 2 * 86400)
 
 
 @app.get("/api/earnings/{symbol}")
