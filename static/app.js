@@ -598,9 +598,31 @@ function timeToX(pane, time) {
 
 function pixelY(pane, price) { return pane.candleSeries.priceToCoordinate(price); }
 
+// Tiempo del punto clicado. A la derecha de la última vela (margen del gráfico)
+// la librería entrega time=null y el clic se perdía — la línea "no se terminaba".
+// Aquí se extrapola el tiempo desde la coordenada X, lo que además permite
+// proyectar dibujos hacia el futuro, como en TradingView.
+function timeFromPoint(pane, param) {
+  if (param.time) return param.time;
+  if (!param.point) return null;
+  const c = pane.candles;
+  if (c.length < 2) return null;
+  const ts = pane.chart.timeScale();
+  const xLast = ts.timeToCoordinate(c[c.length - 1].time);
+  if (xLast == null) return null;
+  const bs = ts.options().barSpacing || 6;
+  const step = (c[c.length - 1].time - c[c.length - 2].time) || 1;
+  const bars = Math.round((param.point.x - xLast) / bs);
+  return c[c.length - 1].time + bars * step;
+}
+
 function clampedTimeFromX(pane, x) {
   const w = pane.container.clientWidth;
-  return pane.chart.timeScale().coordinateToTime(Math.max(0, Math.min(w, x)));
+  const cx = Math.max(0, Math.min(w, x));
+  const t = pane.chart.timeScale().coordinateToTime(cx);
+  if (t != null) return t;
+  // más allá de la última vela: extrapola (permite arrastrar extremos hacia el futuro)
+  return timeFromPoint(pane, { point: { x: cx } });
 }
 function clampedPriceFromY(pane, y) {
   const h = pane.container.clientHeight;
@@ -930,13 +952,14 @@ function setupDrawingTool(pane) {
       if (hit) selectDrawing(pane, hit.__drawingId); else deselectDrawing(pane);
       return;
     }
-    if (!param.time) return;
+    const time = timeFromPoint(pane, param);
+    if (time == null) return;
     const price = pane.candleSeries.coordinateToPrice(param.point.y);
     if (price === null) return;
 
     if (pane.drawMode === "hray") {
       const arr = getSymbolDrawings(pane.symbol);
-      arr.push({ id: nextDrawingId(), type: "hray", data: { p1: { time: param.time, price }, color: getDrawColor(), width: getDrawWidth() } });
+      arr.push({ id: nextDrawingId(), type: "hray", data: { p1: { time, price }, color: getDrawColor(), width: getDrawWidth() } });
       setSymbolDrawings(pane.symbol, arr);
       loadAllDrawings();
       setDrawMode(pane, null);
@@ -944,10 +967,10 @@ function setupDrawingTool(pane) {
     }
 
     if (!pane.pendingPoint) {
-      pane.pendingPoint = { time: param.time, price };
+      pane.pendingPoint = { time, price };
     } else {
       const p1 = pane.pendingPoint;
-      const p2 = { time: param.time, price };
+      const p2 = { time, price };
       pane.pendingPoint = null;
       clearPreview(pane);
       const arr = getSymbolDrawings(pane.symbol);
@@ -959,14 +982,16 @@ function setupDrawingTool(pane) {
   });
 
   pane.chart.subscribeCrosshairMove((param) => {
-    if (pane.drawMode !== "trend" || !pane.pendingPoint || !param.point || !param.time) return;
+    if (pane.drawMode !== "trend" || !pane.pendingPoint || !param.point) return;
+    const time = timeFromPoint(pane, param);
+    if (time == null) return;
     const price = pane.candleSeries.coordinateToPrice(param.point.y);
     if (price == null) return;
     if (!pane.previewPrimitive) {
-      pane.previewPrimitive = new TrendLinePrimitive(pane, pane.pendingPoint, { time: param.time, price }, { dashed: true, width: getDrawWidth() });
+      pane.previewPrimitive = new TrendLinePrimitive(pane, pane.pendingPoint, { time, price }, { dashed: true, width: getDrawWidth() });
       pane.candleSeries.attachPrimitive(pane.previewPrimitive);
     } else {
-      pane.previewPrimitive.setPoints(pane.pendingPoint, { time: param.time, price });
+      pane.previewPrimitive.setPoints(pane.pendingPoint, { time, price });
     }
   });
 }
