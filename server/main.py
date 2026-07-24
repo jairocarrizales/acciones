@@ -444,10 +444,12 @@ class EarningsIn(BaseModel):
 
 @app.get("/api/earnings/next-all")
 def get_next_earnings_all():
-    # Incluye también los reportes de los últimos 2 días: así el badge sigue visible
-    # justo después del earnings (para entender los movimientos) y desaparece solo.
+    # Incluye también los reportes recientes: así el badge sigue visible los 2 días
+    # posteriores al earnings (para entender los movimientos) y desaparece solo.
+    # Son 3*86400 porque la fecha se guarda a medianoche UTC y los reportes AMC
+    # ocurren ~16 h más tarde: con 2 exactos el badge moría un día antes.
     now_ts = int(datetime.now(tz=timezone.utc).timestamp())
-    return db.get_next_earnings_all(now_ts - 2 * 86400)
+    return db.get_next_earnings_all(now_ts - 3 * 86400)
 
 
 @app.get("/api/earnings/{symbol}")
