@@ -3,7 +3,7 @@
 "use strict";
 
 const state = {
-  symbol: "META",   // símbolo del panel enfocado (espejo de panes[activePane].symbol)
+  symbol: "",       // símbolo del panel enfocado (se resuelve al cargar la watchlist)
   activePane: "A",  // panel que recibe los cambios de símbolo de la watchlist
   theme: localStorage.getItem("theme") || "dark",
   maConfig: [],
@@ -1184,6 +1184,7 @@ async function selectSymbol(ticker) {
   const pane = panes[state.activePane];
   pane.symbol = ticker.toUpperCase();
   state.symbol = pane.symbol;
+  localStorage.setItem(`paneSymbol:${pane.letter}`, pane.symbol); // recordado por panel
   document.querySelectorAll(".wl-symbol").forEach((el) => el.classList.toggle("active", el.dataset.ticker === state.symbol));
   await loadPaneData(pane);
   updateCurrentPrice();
@@ -1926,6 +1927,15 @@ setLeftCollapsed(localStorage.getItem("leftCollapsed") === "1");
     Notification.requestPermission();
   }
   await loadWatchlist();
+  // Símbolo inicial de cada panel: el último que ese panel mostró, siempre que siga
+  // en la watchlist; si no (p. ej. lo eliminaste), el primer símbolo de tu lista.
+  const tickers = [];
+  (state.watchlistGroups || []).forEach((g) => g.symbols.forEach((s) => tickers.push(s.ticker)));
+  const fallback = tickers[0] || "SPY";
+  Object.values(panes).forEach((p) => {
+    const saved = localStorage.getItem(`paneSymbol:${p.letter}`);
+    p.symbol = saved && tickers.includes(saved) ? saved : fallback;
+  });
   setActivePane("A");
   applyLayout(); // carga los paneles visibles (los que no tienen velas aún)
   pollAlarmEvents();
