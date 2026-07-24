@@ -195,6 +195,7 @@ function buildPaneDom(letter) {
       <button class="btn-refresh-pane tool-btn" data-pane="${letter}" title="Actualizar gráfico"><i class="fa-solid fa-arrows-rotate"></i></button>
       <button class="btn-toggle-trend tool-btn" data-pane="${letter}" title="Trazar línea de tendencia"><i class="fa-solid fa-arrow-trend-up"></i></button>
       <button class="btn-toggle-hray tool-btn" data-pane="${letter}" title="Rayo horizontal (un clic)"><i class="fa-solid fa-arrow-right-long"></i></button>
+      <button class="btn-toggle-rect tool-btn" data-pane="${letter}" title="Rectángulo (dos clics)"><i class="fa-solid fa-vector-square"></i></button>
       <button class="btn-auto-channel tool-btn" data-pane="${letter}" title="Canal automático (sobre las velas visibles)"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
       <button class="btn-clear-drawings tool-btn" data-pane="${letter}" title="Borrar todos los dibujos del símbolo"><i class="fa-solid fa-trash"></i></button>
       <button class="btn-draw-width tool-btn" data-pane="${letter}" title="Grosor de línea"><span class="width-sample"></span></button>
@@ -504,6 +505,81 @@ class TrendLinePrimitive {
   setSelected(sel) { this.options.selected = sel; this.requestUpdate(); }
 }
 
+// ---- rectángulo: dos esquinas opuestas, borde fino y relleno translúcido ----
+
+function colorWithAlpha(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+class RectPaneRenderer {
+  constructor(p1, p2, options) { this._p1 = p1; this._p2 = p2; this._options = options; }
+  draw(target) {
+    target.useBitmapCoordinateSpace((scope) => {
+      const p1 = this._p1, p2 = this._p2, o = this._options;
+      if (p1.x == null || p1.y == null || p2.x == null || p2.y == null) return;
+      const ctx = scope.context;
+      const x1 = p1.x * scope.horizontalPixelRatio, y1 = p1.y * scope.verticalPixelRatio;
+      const x2 = p2.x * scope.horizontalPixelRatio, y2 = p2.y * scope.verticalPixelRatio;
+      const x = Math.min(x1, x2), y = Math.min(y1, y2);
+      const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+      ctx.save();
+      ctx.fillStyle = colorWithAlpha(o.color, 0.12);
+      ctx.fillRect(x, y, w, h);
+      ctx.lineWidth = (o.selected ? o.width + 1 : o.width) * scope.horizontalPixelRatio;
+      ctx.strokeStyle = o.color;
+      if (o.dashed) ctx.setLineDash([6 * scope.horizontalPixelRatio, 4 * scope.horizontalPixelRatio]);
+      ctx.strokeRect(x, y, w, h);
+      ctx.restore();
+      if (o.selected) {
+        drawHandle(ctx, x1, y1, scope, false, o.color);
+        drawHandle(ctx, x2, y2, scope, false, o.color);
+        drawHandle(ctx, (x1 + x2) / 2, (y1 + y2) / 2, scope, true);
+      }
+    });
+  }
+}
+
+class RectPaneView {
+  constructor(source) {
+    this._source = source;
+    this._p1px = { x: null, y: null };
+    this._p2px = { x: null, y: null };
+  }
+  update(chart, series) {
+    if (!chart || !series) return;
+    const pane = this._source._pane;
+    this._p1px = { x: timeToX(pane, this._source.p1.time), y: series.priceToCoordinate(this._source.p1.price) };
+    this._p2px = { x: timeToX(pane, this._source.p2.time), y: series.priceToCoordinate(this._source.p2.price) };
+  }
+  renderer() { return new RectPaneRenderer(this._p1px, this._p2px, this._source.options); }
+}
+
+class RectPrimitive {
+  constructor(pane, p1, p2, options) {
+    this._pane = pane;
+    this.p1 = p1;
+    this.p2 = p2;
+    this.options = { color: getDrawColor(), width: 1, selected: false, dashed: false, ...options };
+    this._paneView = new RectPaneView(this);
+    this._chart = null;
+    this._series = null;
+    this._requestUpdateFn = null;
+  }
+  attached(param) {
+    this._chart = param.chart;
+    this._series = param.series;
+    this._requestUpdateFn = param.requestUpdate;
+    this.requestUpdate();
+  }
+  detached() { this._chart = null; this._series = null; this._requestUpdateFn = null; }
+  updateAllViews() { this._paneView.update(this._chart, this._series); }
+  paneViews() { return [this._paneView]; }
+  requestUpdate() { if (this._requestUpdateFn) this._requestUpdateFn(); }
+  setPoints(p1, p2) { this.p1 = p1; this.p2 = p2; this.requestUpdate(); }
+  setSelected(sel) { this.options.selected = sel; this.requestUpdate(); }
+}
+
 // ---- rayo horizontal: desde un punto hacia la derecha, sin fin ----
 
 class HRayPaneRenderer {
@@ -646,6 +722,18 @@ function hitTestDrawings(pane, x, y) {
     let dist = null;
     if (p.__type === "hray") {
       if (x >= x1 - TOL) dist = Math.abs(y - y1);
+    } else if (p.__type === "rect") {
+      const x2 = timeToX(pane, p.p2.time), y2 = pixelY(pane, p.p2.price);
+      if (x2 == null || y2 == null) continue;
+      const xa = Math.min(x1, x2), xb = Math.max(x1, x2);
+      const ya = Math.min(y1, y2), yb = Math.max(y1, y2);
+      dist = Math.min(
+        distToSegment(x, y, xa, ya, xb, ya), distToSegment(x, y, xa, yb, xb, yb),
+        distToSegment(x, y, xa, ya, xa, yb), distToSegment(x, y, xb, ya, xb, yb),
+      );
+      // dentro del rectángulo también selecciona, pero con menor prioridad que
+      // una línea que pase cerca del punto clicado
+      if (x >= xa && x <= xb && y >= ya && y <= yb) dist = Math.min(dist, TOL - 1);
     } else {
       const x2 = timeToX(pane, p.p2.time), y2 = pixelY(pane, p.p2.price);
       if (x2 == null || y2 == null) continue;
@@ -672,6 +760,12 @@ function hitTestHandle(pane, id, x, y) {
   if (Math.hypot(x - x1, y - y1) < R) return "p1";
   if (Math.hypot(x - x2, y - y2) < R) return "p2";
   if (Math.hypot(x - (x1 + x2) / 2, y - (y1 + y2) / 2) < R) return "move";
+  if (p.__type === "rect") {
+    // agarrar el cuerpo del rectángulo lo mueve completo
+    const xa = Math.min(x1, x2), xb = Math.max(x1, x2);
+    const ya = Math.min(y1, y2), yb = Math.max(y1, y2);
+    if (x >= xa && x <= xb && y >= ya && y <= yb) return "move";
+  }
   return null;
 }
 
@@ -766,7 +860,7 @@ function clearPreview(pane) {
   if (pane.previewPrimitive) { pane.candleSeries.detachPrimitive(pane.previewPrimitive); pane.previewPrimitive = null; }
 }
 
-// mode: null (desarmado) | "trend" (línea de tendencia, 2 clics) | "hray" (rayo horizontal, 1 clic)
+// mode: null | "trend" (línea, 2 clics) | "hray" (rayo, 1 clic) | "rect" (rectángulo, 2 clics)
 function setDrawMode(pane, mode) {
   pane.drawMode = mode || null;
   pane.pendingPoint = null;
@@ -775,8 +869,10 @@ function setDrawMode(pane, mode) {
   pane.container.classList.toggle("drawing-armed", !!mode);
   const tbtn = document.querySelector(`.btn-toggle-trend[data-pane="${pane.letter}"]`);
   const hbtn = document.querySelector(`.btn-toggle-hray[data-pane="${pane.letter}"]`);
+  const rbtn = document.querySelector(`.btn-toggle-rect[data-pane="${pane.letter}"]`);
   if (tbtn) tbtn.classList.toggle("active", mode === "trend");
   if (hbtn) hbtn.classList.toggle("active", mode === "hray");
+  if (rbtn) rbtn.classList.toggle("active", mode === "rect");
   // Mientras se traza, se desactiva el paneo/zoom: si no, un clic con el más mínimo
   // movimiento del mouse se interpreta como arrastre de la vista en vez de un clic.
   pane.chart.applyOptions({ handleScroll: !mode, handleScale: !mode });
@@ -790,10 +886,12 @@ function clearDrawingSeries(pane) {
 
 function renderDrawing(pane, d) {
   const type = d.type || "trend";
-  const opts = { color: d.data.color || getDrawColor(), width: d.data.width || 2 };
+  const opts = { color: d.data.color || getDrawColor(), width: d.data.width || (type === "rect" ? 1 : 2) };
   const primitive = type === "hray"
     ? new HRayPrimitive(pane, d.data.p1, opts)
-    : new TrendLinePrimitive(pane, d.data.p1, d.data.p2, opts);
+    : type === "rect"
+      ? new RectPrimitive(pane, d.data.p1, d.data.p2, opts)
+      : new TrendLinePrimitive(pane, d.data.p1, d.data.p2, opts);
   primitive.__drawingId = d.id;
   primitive.__type = type;
   pane.candleSeries.attachPrimitive(primitive);
@@ -897,6 +995,8 @@ function setupDrawingTool(pane) {
   btn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "trend" ? null : "trend"));
   const hrayBtn = document.querySelector(`.btn-toggle-hray[data-pane="${pane.letter}"]`);
   hrayBtn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "hray" ? null : "hray"));
+  const rectBtn = document.querySelector(`.btn-toggle-rect[data-pane="${pane.letter}"]`);
+  rectBtn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "rect" ? null : "rect"));
   document.querySelector(`.btn-auto-channel[data-pane="${pane.letter}"]`).addEventListener("click", () => autoChannel(pane));
   document.querySelector(`.btn-clear-drawings[data-pane="${pane.letter}"]`).addEventListener("click", () => clearAllDrawings(pane));
 
@@ -966,15 +1066,17 @@ function setupDrawingTool(pane) {
       return;
     }
 
+    // "trend" y "rect" se trazan con dos clics (el rectángulo siempre con borde de 1 px)
     if (!pane.pendingPoint) {
       pane.pendingPoint = { time, price };
     } else {
       const p1 = pane.pendingPoint;
       const p2 = { time, price };
+      const type = pane.drawMode;
       pane.pendingPoint = null;
       clearPreview(pane);
       const arr = getSymbolDrawings(pane.symbol);
-      arr.push({ id: nextDrawingId(), type: "trend", data: { p1, p2, color: getDrawColor(), width: getDrawWidth() } });
+      arr.push({ id: nextDrawingId(), type, data: { p1, p2, color: getDrawColor(), width: type === "rect" ? 1 : getDrawWidth() } });
       setSymbolDrawings(pane.symbol, arr);
       loadAllDrawings();
       setDrawMode(pane, null);
@@ -982,13 +1084,15 @@ function setupDrawingTool(pane) {
   });
 
   pane.chart.subscribeCrosshairMove((param) => {
-    if (pane.drawMode !== "trend" || !pane.pendingPoint || !param.point) return;
+    if ((pane.drawMode !== "trend" && pane.drawMode !== "rect") || !pane.pendingPoint || !param.point) return;
     const time = timeFromPoint(pane, param);
     if (time == null) return;
     const price = pane.candleSeries.coordinateToPrice(param.point.y);
     if (price == null) return;
     if (!pane.previewPrimitive) {
-      pane.previewPrimitive = new TrendLinePrimitive(pane, pane.pendingPoint, { time, price }, { dashed: true, width: getDrawWidth() });
+      pane.previewPrimitive = pane.drawMode === "rect"
+        ? new RectPrimitive(pane, pane.pendingPoint, { time, price }, { dashed: true, width: 1 })
+        : new TrendLinePrimitive(pane, pane.pendingPoint, { time, price }, { dashed: true, width: getDrawWidth() });
       pane.candleSeries.attachPrimitive(pane.previewPrimitive);
     } else {
       pane.previewPrimitive.setPoints(pane.pendingPoint, { time, price });
