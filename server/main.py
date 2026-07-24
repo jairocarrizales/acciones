@@ -91,6 +91,18 @@ def remove_group(gid: int):
     return {"ok": True}
 
 
+class MoveGroupIn(BaseModel):
+    direction: str  # "up" | "down"
+
+
+@app.put("/api/watchlist/groups/{gid}/move")
+def move_group(gid: int, body: MoveGroupIn):
+    if body.direction not in ("up", "down"):
+        raise HTTPException(400, "direction debe ser 'up' o 'down'")
+    db.move_group(gid, body.direction)
+    return {"ok": True}
+
+
 class SymbolIn(BaseModel):
     ticker: str
     name: str = ""

@@ -132,7 +132,9 @@ input, select, textarea {
 .wl-group.collapsed .wl-symbols { display: none; }
 .wl-group-name { flex: 1; }
 .wl-group-del { opacity: 0; font-size: 11px; padding: 1px 5px; }
-.wl-group-header:hover .wl-group-del { opacity: 1; }
+.wl-group-move { opacity: 0; font-size: 10px; padding: 1px 4px; color: var(--text-dim); }
+.wl-group-header:hover .wl-group-del,
+.wl-group-header:hover .wl-group-move { opacity: 1; }
 
 .wl-symbols { padding-left: 14px; min-height: 4px; }
 .wl-symbol {

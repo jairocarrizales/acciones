@@ -198,6 +198,21 @@ def rename_group(gid, name):
         conn.execute("UPDATE groups SET name=? WHERE id=?", (name, gid))
 
 
+def move_group(gid, direction):
+    """Sube o baja un grupo un puesto (con todos sus símbolos dentro)."""
+    with connect() as conn:
+        ids = [r["id"] for r in conn.execute("SELECT id FROM groups ORDER BY position, id")]
+        if gid not in ids:
+            return
+        i = ids.index(gid)
+        j = i - 1 if direction == "up" else i + 1
+        if j < 0 or j >= len(ids):
+            return
+        ids[i], ids[j] = ids[j], ids[i]
+        for pos, _id in enumerate(ids):
+            conn.execute("UPDATE groups SET position=? WHERE id=?", (pos, _id))
+
+
 def delete_group(gid):
     with connect() as conn:
         conn.execute("DELETE FROM groups WHERE id=?", (gid,))
