@@ -250,7 +250,7 @@ function createPane(letter, defaultInterval) {
     dmaVisible: localStorage.getItem(`dmaVisible:${letter}`) !== "0",
     extVisible: localStorage.getItem(`extVisible:${letter}`) === "1", // sesión extendida (pre/post)
     extPrimitive: null,
-    targetPriceLine: null, alarmPriceLines: [], prevCloseLine: null, prevClose: null,
+    targetPriceLine: null, alarmPriceLines: [], sessionPrimitive: null, prevClose: null,
     interval: defaultInterval, candles: [],
     maConfig: [], dailyCandles: [], targetPrice: null, alarms: [], earnings: [],
     trendPrimitives: [], drawings: [], selectedDrawingId: null,
@@ -1207,6 +1207,7 @@ async function loadCandles(pane, forceRefresh) {
     pane.extPrimitive = new ExtSessionPrimitive(pane);
     pane.candleSeries.attachPrimitive(pane.extPrimitive);
   }
+  applyPrevCloseLine(pane); // separadores de día + cierre anterior sobre el día actual
   focusLatest(pane);
   // Reactiva el auto-escalado del eje de precios: al cambiar de activo (o temporalidad)
   // el gráfico vuelve a centrarse en el nuevo rango de precios, aunque el usuario haya
@@ -1258,6 +1259,7 @@ async function liveUpdatePane(pane) {
     if (!dirty) return;
     renderMAs(pane);
     renderBollinger(pane);
+    applyPrevCloseLine(pane);
     if (pane.letter === state.activePane) updateCurrentPrice();
   } catch (_) {
     // silencioso: la próxima pasada lo intenta de nuevo
@@ -1483,17 +1485,74 @@ async function loadPrevClose(pane) {
   applyPrevCloseLine(pane);
 }
 
+// El cierre anterior se pinta SOLO sobre el día actual (desde la primera vela de hoy
+// hacia la derecha), y cada cambio de día se marca con una línea vertical: ambas cosas
+// tal como las muestra TC2000. Todo en un primitive de canvas por panel.
 function applyPrevCloseLine(pane) {
-  if (pane.prevCloseLine) {
-    try { pane.candleSeries.removePriceLine(pane.prevCloseLine); } catch (_) {}
-    pane.prevCloseLine = null;
+  if (!pane.sessionPrimitive) {
+    pane.sessionPrimitive = new SessionMarksPrimitive(pane);
+    pane.candleSeries.attachPrimitive(pane.sessionPrimitive);
   }
-  // Solo tiene sentido en intradía (en D1 cada vela ya es un día).
-  if (pane.interval === "1d" || !pane.prevClose) return;
-  pane.prevCloseLine = pane.candleSeries.createPriceLine({
-    price: pane.prevClose, color: state.theme === "dark" ? "#e6e6e6" : "#333333", lineWidth: 1,
-    lineStyle: LC.LineStyle.LargeDashed, axisLabelVisible: true, title: "",
-  });
+  pane.sessionPrimitive.requestUpdate();
+}
+
+function dayKeyOf(t) {
+  const d = new Date(t * 1000); // epoch "naive" hora NY -> leer en UTC
+  return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+}
+
+class SessionMarksPrimitive {
+  constructor(pane) { this._pane = pane; this._req = null; this._view = { update: () => {}, renderer: () => this }; }
+  attached(p) { this._req = p.requestUpdate; this._req(); }
+  detached() { this._req = null; }
+  requestUpdate() { if (this._req) this._req(); }
+  updateAllViews() {}
+  paneViews() { return [this._view]; }
+  draw(target) {
+    const pane = this._pane;
+    if (pane.interval === "1d" || !pane.candles.length) return;
+    target.useBitmapCoordinateSpace((scope) => {
+      const ts = pane.chart.timeScale();
+      const c = pane.candles;
+      const vr = ts.getVisibleLogicalRange();
+      if (!vr) return;
+      const from = Math.max(1, Math.floor(vr.from)), to = Math.min(c.length - 1, Math.ceil(vr.to));
+      const ctx = scope.context;
+      const hpr = scope.horizontalPixelRatio, vpr = scope.verticalPixelRatio;
+      const bs = (ts.options().barSpacing || 6) * hpr;
+      const dark = state.theme === "dark";
+      ctx.save();
+
+      // 1) separadores verticales al cambiar de día
+      ctx.strokeStyle = dark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.25)";
+      ctx.lineWidth = 1 * hpr;
+      ctx.setLineDash([]);
+      for (let i = from; i <= to; i++) {
+        if (dayKeyOf(c[i].time) === dayKeyOf(c[i - 1].time)) continue;
+        const x = ts.timeToCoordinate(c[i].time);
+        if (x == null) continue;
+        const px = Math.round(x * hpr - bs / 2) + 0.5;
+        ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, scope.bitmapSize.height); ctx.stroke();
+      }
+
+      // 2) cierre anterior: línea punteada solo desde la primera vela del último día
+      if (pane.prevClose) {
+        const lastDay = dayKeyOf(c[c.length - 1].time);
+        let firstIdx = c.length - 1;
+        while (firstIdx > 0 && dayKeyOf(c[firstIdx - 1].time) === lastDay) firstIdx--;
+        const x0 = ts.timeToCoordinate(c[firstIdx].time);
+        const y = pane.candleSeries.priceToCoordinate(pane.prevClose);
+        if (x0 != null && y != null) {
+          const px0 = x0 * hpr - bs / 2, py = Math.round(y * vpr) + 0.5;
+          ctx.strokeStyle = dark ? "#e6e6e6" : "#333333";
+          ctx.lineWidth = 1 * hpr;
+          ctx.setLineDash([8 * hpr, 6 * hpr]);
+          ctx.beginPath(); ctx.moveTo(px0, py); ctx.lineTo(scope.bitmapSize.width, py); ctx.stroke();
+        }
+      }
+      ctx.restore();
+    });
+  }
 }
 
 async function loadTargetPrice(pane) {
