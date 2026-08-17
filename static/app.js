@@ -1208,6 +1208,67 @@ async function loadCandles(pane, forceRefresh) {
   if (pane.letter === state.activePane) updateCurrentPrice();
 }
 
+// ---- actualización en vivo de la vela en curso ----
+// Con el mercado abierto, cada panel visible vuelve a pedir sus velas periódicamente
+// (el servidor decide si toca ir a la fuente según la temporalidad) y actualiza el
+// gráfico SIN tocar el zoom ni la posición: solo se refrescan las velas nuevas o la
+// que se está formando, como hace TC2000. Antes el gráfico era una foto estática hasta
+// que se cambiaba de símbolo o se pulsaba refrescar.
+const LIVE_REFRESH_MS = { m15: 30000, m30: 45000, "1h": 60000, "1d": 120000 };
+
+function marketOpenNowNY() {
+  const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const dow = et.getDay();
+  const m = et.getHours() * 60 + et.getMinutes();
+  return dow >= 1 && dow <= 5 && m >= 9 * 60 + 30 && m < 16 * 60;
+}
+
+async function liveUpdatePane(pane) {
+  if (!pane.candles.length || pane.liveBusy) return;
+  pane.liveBusy = true;
+  try {
+    const useExt = pane.extVisible && pane.interval !== "1d";
+    const url = useExt ? `/api/candles-ext/${pane.symbol}/${pane.interval}` : `/api/candles/${pane.symbol}/${pane.interval}`;
+    const fresh = await api(url);
+    if (!fresh.length) return;
+    const lastKnown = pane.candles[pane.candles.length - 1].time;
+    // velas nuevas o cambiadas desde la última conocida (incluida la que se forma)
+    const changed = fresh.filter((c) => c.time >= lastKnown);
+    if (!changed.length) return;
+    let dirty = false;
+    changed.forEach((c) => {
+      const i = pane.candles.findIndex((k) => k.time === c.time);
+      const prev = i >= 0 ? pane.candles[i] : null;
+      if (prev && prev.close === c.close && prev.high === c.high && prev.low === c.low) return;
+      if (i >= 0) pane.candles[i] = c; else pane.candles.push(c);
+      pane.candleSeries.update({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close });
+      dirty = true;
+    });
+    if (!dirty) return;
+    renderMAs(pane);
+    renderBollinger(pane);
+    if (pane.letter === state.activePane) updateCurrentPrice();
+  } catch (_) {
+    // silencioso: la próxima pasada lo intenta de nuevo
+  } finally {
+    pane.liveBusy = false;
+  }
+}
+
+function liveTick() {
+  const now = Date.now();
+  if (marketOpenNowNY()) {
+    visiblePanes().forEach((p) => {
+      const every = LIVE_REFRESH_MS[p.interval] || 60000;
+      if (!p.lastLive || now - p.lastLive >= every) {
+        p.lastLive = now;
+        liveUpdatePane(p);
+      }
+    });
+  }
+  setTimeout(liveTick, 5000);
+}
+
 async function updateCurrentPrice() {
   const fp = panes[state.activePane];
   document.getElementById("curSymbol").textContent = fp.symbol;
@@ -2025,6 +2086,7 @@ setLeftCollapsed(localStorage.getItem("leftCollapsed") === "1");
   pollAlarmEvents();
   loadTrendScan();
   pollSaltos();
+  liveTick(); // vela en curso en vivo con el mercado abierto
 })();
 
 })();

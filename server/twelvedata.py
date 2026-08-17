@@ -9,7 +9,11 @@ BASE = "https://api.twelvedata.com"
 INTERVAL_MAP = {"m15": "15min", "m30": "30min", "1h": "1h", "1d": "1day"}
 
 # Segundos de antigüedad máxima de la caché antes de volver a pedir a la API
-STALENESS = {"m15": 300, "m30": 600, "1h": 900, "1d": 3600}
+# Con mercado abierto la vela en curso se refresca a este ritmo (el gráfico consulta
+# solo; con ~800 peticiones/día en el plan gratuito, 60 s en M15 son ~390 peticiones
+# por sesión para UN panel activo — sostenible). Fuera de horario, cada hora basta.
+STALENESS = {"m15": 60, "m30": 90, "1h": 120, "1d": 300}
+STALENESS_CLOSED = {"m15": 3600, "m30": 3600, "1h": 3600, "1d": 3600}
 
 
 class TwelveDataError(Exception):

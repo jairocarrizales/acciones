@@ -153,11 +153,22 @@ async def search(q: str):
 
 # ---------------- Candles ----------------
 
+def _market_open_now() -> bool:
+    """Sesión regular de EE. UU. (9:30-16:00 ET, lunes a viernes; feriados no contemplados)."""
+    now_et = datetime.now(saltos.MARKET_TZ)
+    if now_et.weekday() >= 5:
+        return False
+    m = now_et.hour * 60 + now_et.minute
+    return 9 * 60 + 30 <= m < 16 * 60
+
+
 async def _ensure_candles(symbol: str, interval: str, refresh: bool = False):
-    """Refresca la caché de velas si hace falta y devuelve las velas guardadas."""
+    """Refresca la caché de velas si hace falta y devuelve las velas guardadas.
+    Con mercado abierto la vela en curso se refresca con más frecuencia."""
     now = int(time.time())
     last_fetch = db.get_fetch_time(symbol, interval)
-    stale = (now - last_fetch) > td.STALENESS[interval]
+    max_age = (td.STALENESS if _market_open_now() else td.STALENESS_CLOSED)[interval]
+    stale = (now - last_fetch) > max_age
 
     if last_fetch == 0 or refresh or stale:
         try:
