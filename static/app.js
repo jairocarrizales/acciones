@@ -211,6 +211,7 @@ function buildPaneDom(letter) {
       <button class="btn-toggle-ma tool-btn" data-pane="${letter}" title="Mostrar/ocultar medias móviles"><i class="fa-solid fa-wave-square"></i></button>
       <button class="btn-toggle-dma tool-btn" data-pane="${letter}" title="Mostrar/ocultar niveles de MAs diarias (D1) en intradía">D1</button>
       <button class="btn-toggle-bb tool-btn active" data-pane="${letter}" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
+      <button class="btn-toggle-stoch tool-btn" data-pane="${letter}" title="Panel inferior: Worden Stochastics 12 %K 3 + Volumen"><i class="fa-solid fa-chart-column"></i></button>
     </div>
     <div class="pane-chart-container" id="chartContainer${letter}">
       <div class="candle-countdown" id="countdown${letter}"></div>
@@ -246,6 +247,8 @@ function createPane(letter, defaultInterval) {
     letter, container, chart, candleSeries, earningsMarkersPrimitive,
     symbol: state.symbol,
     maSeries: [], maVisible: false, bbSeries: [], bbVisible: true, dailyMaLines: [],
+    stochVisible: localStorage.getItem(`stochVisible:${letter}`) === "1",
+    volSeries: null, stochSeries: null, stochLevelSeries: [],
     dmaVisible: localStorage.getItem(`dmaVisible:${letter}`) !== "0",
     extVisible: localStorage.getItem(`extVisible:${letter}`) === "1", // sesión extendida (pre/post)
     extPrimitive: null,
@@ -425,6 +428,92 @@ function renderBollinger(pane) {
     series.setData(data);
     pane.bbSeries.push(series);
   });
+}
+
+// ---------------- panel inferior: Worden Stochastics 12 %K 3 + Volumen (estilo TC2000) ----------------
+// Worden Stochastics = %K estocástico de período 12 (posición del cierre dentro del rango
+// alto-bajo de las últimas 12 velas, 0-100) suavizado con SMA de 3. Se pinta amarillo con
+// niveles 20/80, y el volumen debajo como barras verdes/rojas según el color de la vela.
+
+function wordenStochastics(candles, period, smooth) {
+  const rawK = new Array(candles.length).fill(null);
+  for (let i = period - 1; i < candles.length; i++) {
+    let hi = -Infinity, lo = Infinity;
+    for (let j = i - period + 1; j <= i; j++) {
+      if (candles[j].high > hi) hi = candles[j].high;
+      if (candles[j].low < lo) lo = candles[j].low;
+    }
+    rawK[i] = hi === lo ? 50 : ((candles[i].close - lo) / (hi - lo)) * 100;
+  }
+  const out = new Array(candles.length).fill(null);
+  for (let i = period - 1 + smooth - 1; i < candles.length; i++) {
+    let s = 0, n = 0;
+    for (let j = i - smooth + 1; j <= i; j++) { if (rawK[j] != null) { s += rawK[j]; n++; } }
+    out[i] = n ? s / n : null;
+  }
+  return out;
+}
+
+const STOCH_PANE = 1; // índice del subpanel en el chart
+
+function clearStochPane(pane) {
+  if (pane.volSeries) { try { pane.chart.removeSeries(pane.volSeries); } catch (_) {} pane.volSeries = null; }
+  if (pane.stochSeries) { try { pane.chart.removeSeries(pane.stochSeries); } catch (_) {} pane.stochSeries = null; }
+  pane.stochLevelSeries.forEach((s) => { try { pane.chart.removeSeries(s); } catch (_) {} });
+  pane.stochLevelSeries = [];
+}
+
+function renderStochPane(pane) {
+  clearStochPane(pane);
+  if (!pane.stochVisible || !pane.candles.length) return;
+  const c = pane.candles;
+  const times = c.map((k) => k.time);
+
+  // Volumen: barras verde/rojo (según cierre vs apertura), en su propia escala a la derecha
+  // del subpanel, ocupando la mitad inferior para dejar arriba el estocástico.
+  const vol = pane.chart.addSeries(LC.HistogramSeries, {
+    priceScaleId: "vol", priceFormat: { type: "volume" },
+    priceLineVisible: false, lastValueVisible: false,
+  }, STOCH_PANE);
+  vol.setData(c.map((k) => ({ time: k.time, value: k.volume || 0, color: k.close >= k.open ? "rgba(0,255,0,0.75)" : "rgba(255,0,0,0.75)" })));
+  vol.priceScale().applyOptions({ scaleMargins: { top: 0.55, bottom: 0 }, visible: false });
+  pane.volSeries = vol;
+
+  // Worden Stochastics 12 %K 3 (amarillo), escala 0-100 fija con niveles 20 y 80.
+  const k = wordenStochastics(c, 12, 3);
+  // El eje derecho del subpanel muestra 0-100 del estocástico; el rango se declara con
+  // margen inferior para que la línea ocupe la mitad superior y el volumen la inferior,
+  // sin que el eje se extienda a valores negativos.
+  const stochScale = () => ({ priceRange: { minValue: 0, maxValue: 100 }, margins: { above: 4, below: 0 } });
+  const stoch = pane.chart.addSeries(LC.LineSeries, {
+    color: "#ffff00", lineWidth: 1, priceScaleId: "right",
+    priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+    autoscaleInfoProvider: stochScale,
+    // El eje del subpanel solo rotula 0-100 (la parte inferior es del volumen).
+    priceFormat: { type: "custom", minMove: 1, formatter: (v) => (v < -0.5 || v > 100.5 ? "" : Math.round(v).toString()) },
+  }, STOCH_PANE);
+  const data = [];
+  for (let i = 0; i < k.length; i++) if (k[i] != null) data.push({ time: times[i], value: k[i] });
+  stoch.setData(data);
+  stoch.priceScale().applyOptions({ scaleMargins: { top: 0.04, bottom: 0.46 } });
+  pane.stochSeries = stoch;
+
+  [20, 80].forEach((lvl) => {
+    const s = pane.chart.addSeries(LC.LineSeries, {
+      color: lvl === 80 ? "rgba(0,200,0,0.7)" : "rgba(220,60,60,0.7)", lineWidth: 1, priceScaleId: "right",
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: stochScale,
+    }, STOCH_PANE);
+    s.setData([{ time: times[0], value: lvl }, { time: times[times.length - 1], value: lvl }]);
+    pane.stochLevelSeries.push(s);
+  });
+
+  // Altura del subpanel: ~28 % del gráfico.
+  try {
+    const panesArr = pane.chart.panes();
+    if (panesArr[STOCH_PANE]) panesArr[STOCH_PANE].setStretchFactor(0.4);
+    if (panesArr[0]) panesArr[0].setStretchFactor(1);
+  } catch (_) {}
 }
 
 // ---------------- líneas de tendencia — API de Primitives de lightweight-charts ----------------
@@ -1214,6 +1303,7 @@ async function loadCandles(pane, forceRefresh) {
   pane.candleSeries.priceScale().applyOptions({ autoScale: true });
   renderMAs(pane);
   renderBollinger(pane);
+  renderStochPane(pane);
   updateEarningsMarkers(pane);
   await loadDrawings(pane);
   if (pane.letter === state.activePane) updateCurrentPrice();
@@ -1258,6 +1348,7 @@ async function liveUpdatePane(pane) {
     if (!dirty) return;
     renderMAs(pane);
     renderBollinger(pane);
+    renderStochPane(pane);
     applyPrevCloseLine(pane);
     if (pane.letter === state.activePane) updateCurrentPrice();
   } catch (_) {
@@ -1348,6 +1439,18 @@ document.querySelectorAll(".btn-toggle-ma").forEach((btn) => {
     pane.maVisible = !pane.maVisible;
     btn.classList.toggle("active", pane.maVisible);
     pane.maSeries.forEach((s) => s.applyOptions({ visible: pane.maVisible }));
+  });
+});
+
+// Panel inferior Worden Stochastics + Volumen (estilo TC2000), por panel, recordado.
+document.querySelectorAll(".btn-toggle-stoch").forEach((btn) => {
+  const pane = panes[btn.dataset.pane];
+  btn.classList.toggle("active", pane.stochVisible);
+  btn.addEventListener("click", () => {
+    pane.stochVisible = !pane.stochVisible;
+    localStorage.setItem(`stochVisible:${pane.letter}`, pane.stochVisible ? "1" : "0");
+    btn.classList.toggle("active", pane.stochVisible);
+    renderStochPane(pane);
   });
 });
 
