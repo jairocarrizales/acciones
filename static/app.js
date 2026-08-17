@@ -204,6 +204,7 @@ function buildPaneDom(letter) {
         <div class="color-menu hidden"></div>
       </div>
       <span class="spacer"></span>
+      <button class="btn-toggle-ext tool-btn" data-pane="${letter}" title="Sesión extendida: premarket y postmarket (solo intradía)">EXT</button>
       <button class="btn-toggle-ma tool-btn" data-pane="${letter}" title="Mostrar/ocultar medias móviles"><i class="fa-solid fa-wave-square"></i></button>
       <button class="btn-toggle-dma tool-btn" data-pane="${letter}" title="Mostrar/ocultar niveles de MAs diarias (D1) en intradía">D1</button>
       <button class="btn-toggle-bb tool-btn active" data-pane="${letter}" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
@@ -242,6 +243,8 @@ function createPane(letter, defaultInterval) {
     symbol: state.symbol,
     maSeries: [], maVisible: false, bbSeries: [], bbVisible: true, dailyMaLines: [],
     dmaVisible: localStorage.getItem(`dmaVisible:${letter}`) !== "0",
+    extVisible: localStorage.getItem(`extVisible:${letter}`) === "1", // sesión extendida (pre/post)
+    extPrimitive: null,
     targetPriceLine: null, alarmPriceLines: [],
     interval: defaultInterval, candles: [],
     maConfig: [], dailyCandles: [], targetPrice: null, alarms: [], earnings: [],
@@ -1129,10 +1132,70 @@ function focusLatest(pane) {
   pane.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 150), to: n + 6 });
 }
 
+// ---- sombreado de las horas de sesión extendida (pre 4:00-9:30 y post 16:00-20:00) ----
+// Fondo tenue en las velas fuera de la sesión regular, como hace TC2000/TradingView,
+// para distinguir a simple vista el premarket/postmarket del horario normal.
+function isRegularSessionTime(t) {
+  const d = new Date(t * 1000); // el epoch guardado es hora NY "naive" -> leer en UTC
+  const m = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return m >= 9 * 60 + 30 && m < 16 * 60;
+}
+
+class ExtSessionPrimitive {
+  constructor(pane) { this._pane = pane; this._req = null; this._view = { update: () => {}, renderer: () => this }; }
+  attached(p) { this._req = p.requestUpdate; this._req(); }
+  detached() { this._req = null; }
+  updateAllViews() {}
+  paneViews() { return [this._view]; }
+  draw(target) {
+    const pane = this._pane;
+    if (!pane.extVisible || pane.interval === "1d" || !pane.candles.length) return;
+    target.useBitmapCoordinateSpace((scope) => {
+      const ts = pane.chart.timeScale();
+      const bs = (ts.options().barSpacing || 6) * scope.horizontalPixelRatio;
+      const vr = ts.getVisibleLogicalRange();
+      if (!vr) return;
+      const from = Math.max(0, Math.floor(vr.from)), to = Math.min(pane.candles.length - 1, Math.ceil(vr.to));
+      const ctx = scope.context;
+      ctx.save();
+      ctx.fillStyle = state.theme === "dark" ? "rgba(140,150,170,0.07)" : "rgba(60,70,90,0.07)";
+      let runStart = null;
+      const flush = (endIdx) => {
+        if (runStart == null) return;
+        const xa = ts.timeToCoordinate(pane.candles[runStart].time), xb = ts.timeToCoordinate(pane.candles[endIdx].time);
+        if (xa != null && xb != null) {
+          const x0 = xa * scope.horizontalPixelRatio - bs / 2, x1 = xb * scope.horizontalPixelRatio + bs / 2;
+          ctx.fillRect(x0, 0, x1 - x0, scope.bitmapSize.height);
+        }
+        runStart = null;
+      };
+      for (let i = from; i <= to; i++) {
+        const ext = !isRegularSessionTime(pane.candles[i].time);
+        if (ext && runStart == null) runStart = i;
+        if (!ext) flush(i - 1);
+      }
+      flush(to);
+      ctx.restore();
+    });
+  }
+}
+
 async function loadCandles(pane, forceRefresh) {
   const qs = forceRefresh ? "?refresh=true" : "";
-  pane.candles = await api(`/api/candles/${pane.symbol}/${pane.interval}${qs}`);
+  const useExt = pane.extVisible && pane.interval !== "1d";
+  const url = useExt ? `/api/candles-ext/${pane.symbol}/${pane.interval}${qs}` : `/api/candles/${pane.symbol}/${pane.interval}${qs}`;
+  try {
+    pane.candles = await api(url);
+  } catch (e) {
+    if (!useExt) throw e;
+    toast("Sin datos de sesión extendida; mostrando sesión regular.");
+    pane.candles = await api(`/api/candles/${pane.symbol}/${pane.interval}${qs}`);
+  }
   pane.candleSeries.setData(pane.candles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
+  if (!pane.extPrimitive) {
+    pane.extPrimitive = new ExtSessionPrimitive(pane);
+    pane.candleSeries.attachPrimitive(pane.extPrimitive);
+  }
   focusLatest(pane);
   // Reactiva el auto-escalado del eje de precios: al cambiar de activo (o temporalidad)
   // el gráfico vuelve a centrarse en el nuevo rango de precios, aunque el usuario haya
@@ -1212,6 +1275,27 @@ document.querySelectorAll(".btn-toggle-ma").forEach((btn) => {
     pane.maVisible = !pane.maVisible;
     btn.classList.toggle("active", pane.maVisible);
     pane.maSeries.forEach((s) => s.applyOptions({ visible: pane.maVisible }));
+  });
+});
+
+// Sesión extendida (premarket + postmarket) en intradía, como el "ext" de TC2000.
+document.querySelectorAll(".btn-toggle-ext").forEach((btn) => {
+  const pane = panes[btn.dataset.pane];
+  btn.classList.toggle("active", pane.extVisible);
+  btn.addEventListener("click", async () => {
+    pane.extVisible = !pane.extVisible;
+    localStorage.setItem(`extVisible:${pane.letter}`, pane.extVisible ? "1" : "0");
+    btn.classList.toggle("active", pane.extVisible);
+    if (pane.interval === "1d") { toast("La sesión extendida aplica a M15, M30 y 1H."); return; }
+    btn.disabled = true;
+    try {
+      await loadCandles(pane);
+      applyDailyMaLines(pane);
+    } catch (e) {
+      toast("Error al cargar: " + e.message);
+    } finally {
+      btn.disabled = false;
+    }
   });
 });
 
