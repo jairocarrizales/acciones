@@ -440,7 +440,7 @@ async def manual_saltos_evaluate():
 
 
 _ext_cache: dict[tuple[str, str], tuple[float, list]] = {}
-EXT_CACHE_TTL = {"m15": 120, "m30": 240, "1h": 480}
+EXT_CACHE_TTL = {"m15": 120, "1h": 480}
 
 
 @app.get("/api/candles-ext/{symbol}/{interval}")
@@ -448,7 +448,7 @@ async def get_candles_ext(symbol: str, interval: str, refresh: bool = False):
     """Velas intradía con sesión extendida (pre + post), como TC2000 con 'ext' activado."""
     symbol = symbol.upper()
     if interval not in md.EXT_INTERVAL:
-        raise HTTPException(400, "Sesión extendida solo para m15, m30 y 1h")
+        raise HTTPException(400, "Sesión extendida solo para m15 y 1h")
     now = time.time()
     cached = _ext_cache.get((symbol, interval))
     if not refresh and cached and (now - cached[0]) < EXT_CACHE_TTL[interval]:

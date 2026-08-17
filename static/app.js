@@ -192,7 +192,6 @@ function buildPaneDom(letter) {
       <span class="pane-symbol-label" data-pane="${letter}">—</span>
       <div class="intervals" data-pane="${letter}">
         <button data-interval="m15" class="ivl-btn active">M15</button>
-        <button data-interval="m30" class="ivl-btn">M30</button>
         <button data-interval="1h" class="ivl-btn">1H</button>
         <button data-interval="1d" class="ivl-btn">D1</button>
       </div>
@@ -1226,7 +1225,7 @@ async function loadCandles(pane, forceRefresh) {
 // gráfico SIN tocar el zoom ni la posición: solo se refrescan las velas nuevas o la
 // que se está formando, como hace TC2000. Antes el gráfico era una foto estática hasta
 // que se cambiaba de símbolo o se pulsaba refrescar.
-const LIVE_REFRESH_MS = { m15: 30000, m30: 45000, "1h": 60000, "1d": 120000 };
+const LIVE_REFRESH_MS = { m15: 30000, "1h": 60000, "1d": 120000 };
 
 function marketOpenNowNY() {
   const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -1360,7 +1359,7 @@ document.querySelectorAll(".btn-toggle-ext").forEach((btn) => {
     pane.extVisible = !pane.extVisible;
     localStorage.setItem(`extVisible:${pane.letter}`, pane.extVisible ? "1" : "0");
     btn.classList.toggle("active", pane.extVisible);
-    if (pane.interval === "1d") { toast("La sesión extendida aplica a M15, M30 y 1H."); return; }
+    if (pane.interval === "1d") { toast("La sesión extendida aplica a M15 y 1H."); return; }
     btn.disabled = true;
     try {
       await loadCandles(pane);
@@ -1444,7 +1443,7 @@ btnSplitView.addEventListener("click", () => {
 
 // ---------------- cuenta atrás de la vela en curso ----------------
 
-const INTERVAL_SECONDS = { m15: 900, m30: 1800, "1h": 3600 };
+const INTERVAL_SECONDS = { m15: 900, "1h": 3600 };
 
 function updateCountdowns() {
   // Hora del mercado (Nueva York), con horario de verano correcto.

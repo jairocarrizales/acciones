@@ -14,7 +14,7 @@ MARKET_TZ = ZoneInfo("America/New_York")
 # Velas intradía con sesión extendida (pre 4:00 + regular + post hasta 20:00), como
 # TC2000/TradingView con "ext" activado. Yahoo limita el histórico intradía: 15m/30m
 # a 60 días y 1h a 730 días.
-EXT_INTERVAL = {"m15": ("15m", "60d"), "m30": ("30m", "60d"), "1h": ("1h", "730d")}
+EXT_INTERVAL = {"m15": ("15m", "60d"), "1h": ("1h", "730d")}
 
 
 class MarketDataError(Exception):
