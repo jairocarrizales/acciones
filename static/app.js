@@ -250,7 +250,7 @@ function createPane(letter, defaultInterval) {
     dmaVisible: localStorage.getItem(`dmaVisible:${letter}`) !== "0",
     extVisible: localStorage.getItem(`extVisible:${letter}`) === "1", // sesión extendida (pre/post)
     extPrimitive: null,
-    targetPriceLine: null, alarmPriceLines: [],
+    targetPriceLine: null, alarmPriceLines: [], prevCloseLine: null, prevClose: null,
     interval: defaultInterval, candles: [],
     maConfig: [], dailyCandles: [], targetPrice: null, alarms: [], earnings: [],
     trendPrimitives: [], drawings: [], selectedDrawingId: null,
@@ -1131,9 +1131,15 @@ document.addEventListener("keydown", (e) => {
 // Enfoca las últimas ~150 velas con un pequeño margen a la derecha: en cualquier
 // temporalidad se ve lo último que hace el precio con velas legibles, en vez de
 // todo el histórico amontonado (que era lo que hacía fitContent).
-function focusLatest(pane) {
+function focusLatest(pane, attempt = 0) {
   const n = pane.candles.length;
   if (!n) return;
+  // Si el contenedor aún no tiene tamaño real (panel recién visible / carga inicial),
+  // el rango no surte efecto: se reintenta unos instantes después.
+  if (pane.container.clientWidth < 50 && attempt < 20) {
+    setTimeout(() => focusLatest(pane, attempt + 1), 100);
+    return;
+  }
   pane.chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 150), to: n + 6 });
 }
 
@@ -1304,7 +1310,7 @@ async function loadPaneData(pane) {
   if (lbl) lbl.textContent = pane.symbol;
   await Promise.all([
     loadCandles(pane), loadMAConfig(pane), loadAlarms(pane), loadEarnings(pane),
-    loadTargetPrice(pane), loadDailyReference(pane),
+    loadTargetPrice(pane), loadDailyReference(pane), loadPrevClose(pane),
   ]);
 }
 
@@ -1397,6 +1403,7 @@ document.querySelectorAll(".intervals").forEach((group) => {
       pane.chart.applyOptions({ timeScale: { timeVisible: pane.interval !== "1d" } });
       await loadCandles(pane);
       applyDailyMaLines(pane); // mismo símbolo: pane.dailyCandles ya es válido
+      applyPrevCloseLine(pane);
     });
   });
 });
@@ -1423,7 +1430,7 @@ function applyLayout() {
   // últimas velas se reaplica tras la carga, porque si el gráfico aún no tenía tamaño
   // real cuando llegaron los datos, el setVisibleLogicalRange inicial no surte efecto.
   visiblePanes().forEach((p) => {
-    if (!p.candles.length) loadPaneData(p).then(() => setTimeout(() => focusLatest(p), 150));
+    if (!p.candles.length) loadPaneData(p).then(() => { focusLatest(p); setTimeout(() => focusLatest(p), 400); });
   });
 }
 
@@ -1463,6 +1470,31 @@ setInterval(updateCountdowns, 1000);
 updateCountdowns();
 
 // ---------------- target price (línea horizontal automática) ----------------
+
+// ---------------- cierre de la sesión anterior (línea punteada blanca, como TC2000) ----------------
+
+async function loadPrevClose(pane) {
+  try {
+    const q = await api(`/api/premarket/${pane.symbol}`);
+    pane.prevClose = q && q.previous_close ? q.previous_close : null;
+  } catch (_) {
+    pane.prevClose = null;
+  }
+  applyPrevCloseLine(pane);
+}
+
+function applyPrevCloseLine(pane) {
+  if (pane.prevCloseLine) {
+    try { pane.candleSeries.removePriceLine(pane.prevCloseLine); } catch (_) {}
+    pane.prevCloseLine = null;
+  }
+  // Solo tiene sentido en intradía (en D1 cada vela ya es un día).
+  if (pane.interval === "1d" || !pane.prevClose) return;
+  pane.prevCloseLine = pane.candleSeries.createPriceLine({
+    price: pane.prevClose, color: state.theme === "dark" ? "#e6e6e6" : "#333333", lineWidth: 1,
+    lineStyle: LC.LineStyle.LargeDashed, axisLabelVisible: true, title: "",
+  });
+}
 
 async function loadTargetPrice(pane) {
   try {
