@@ -177,6 +177,10 @@ async function migrateLocalPersonalization(groups) {
 
 const LC = window.LightweightCharts;
 
+// Colores de velas al estilo TC2000: verde y rojo puros, cuerpo sólido, mecha del mismo color.
+const CANDLE_UP = "#00ff00";
+const CANDLE_DOWN = "#ff0000";
+
 // Genera el DOM de un panel (barra de herramientas + contenedor del gráfico).
 // Todos los paneles nacen en M15 con solo Bandas de Bollinger activas.
 function buildPaneDom(letter) {
@@ -231,9 +235,10 @@ function createPane(letter, defaultInterval) {
     autoSize: true,
   });
 
+  // Paleta de velas estilo TC2000: verde y rojo puros, cuerpo sólido, mecha del mismo color.
   const candleSeries = chart.addSeries(LC.CandlestickSeries, {
-    upColor: "#22c55e", downColor: "#ef4444", borderVisible: false,
-    wickUpColor: "#22c55e", wickDownColor: "#ef4444",
+    upColor: CANDLE_UP, downColor: CANDLE_DOWN, borderVisible: false,
+    wickUpColor: CANDLE_UP, wickDownColor: CANDLE_DOWN,
   });
 
   const earningsMarkersPrimitive = LC.createSeriesMarkers(candleSeries, []);
