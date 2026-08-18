@@ -33,7 +33,7 @@ class RangosError(Exception):
 # cubre 100 acciones, $20 equivale a una prima de 0.20 en la cadena de opciones.
 DEFAULT_MIN_PRICE = 20.0   # coste mínimo del contrato en dólares
 DEFAULT_MAX_PRICE = 600.0  # coste máximo del contrato en dólares
-DEFAULT_COUNT = 8          # cuántos contratos se usan
+DEFAULT_COUNT = 8          # cuántos contratos se usan (máximo)
 CONTRACT_SIZE = 100        # acciones por contrato
 
 
@@ -111,17 +111,17 @@ async def fetch_day_ranges(symbols):
 
 
 def _row(contract, spot, kind):
-    """Fila del cálculo para un contrato: strike, precio, rango y porcentaje.
+    """Fila del cálculo para un contrato: strike, precio, coste y rango del día.
 
-    El precio se toma del punto medio entre bid y ask (el mercado vigente). El
-    "último negociado" solo se usa como respaldo: en contratos con poco volumen
-    puede ser de hace horas y produce rangos disparatados.
+    El precio es el ASK (lo que cuesta comprar el contrato ahora mismo); el
+    "último negociado" solo se usa como respaldo cuando no hay ask.
     """
     strike = contract.get("strike")
     bid, ask = contract.get("bid") or 0, contract.get("ask") or 0
     last = contract.get("lastPrice")
-    price = (bid + ask) / 2 if (bid > 0 and ask > 0) else last
-    price_source = "medio" if (bid > 0 and ask > 0) else "ultimo"
+    # El precio es el ASK: lo que realmente cuesta comprar el contrato.
+    price = ask if ask > 0 else last
+    price_source = "ask" if ask > 0 else "ultimo"
     if strike is None or price is None:
         return None
     # Call: equilibrio por encima (strike + prima). Put: por debajo (strike - prima).
@@ -172,14 +172,11 @@ async def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE,
     def in_budget(r):
         return min_price <= r["price"] * CONTRACT_SIZE <= max_price
 
-    # Preferencia: los OTM más baratos dentro del presupuesto. Si no alcanzan para
-    # `count`, se completa con los ITM más baratos que también entren.
+    # Todos los contratos cuyo coste cae dentro del presupuesto: primero los OTM
+    # (los del método) y, si el presupuesto da para más, también los ITM.
     otm_ok = sorted([r for r in all_rows if is_otm(r) and in_budget(r)], key=lambda r: r["price"])
-    rows = otm_ok[:count]
-    if len(rows) < count:
-        itm_ok = sorted([r for r in all_rows if not is_otm(r) and in_budget(r)],
-                        key=lambda r: r["price"])
-        rows += itm_ok[:count - len(rows)]
+    itm_ok = sorted([r for r in all_rows if not is_otm(r) and in_budget(r)], key=lambda r: r["price"])
+    rows = (otm_ok + itm_ok)[:count]
     if not rows:
         raise RangosError(
             f"Ningún contrato cuesta entre ${min_price:g} y ${max_price:g}. Ajusta los límites.")

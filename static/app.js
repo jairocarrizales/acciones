@@ -2287,10 +2287,9 @@ function renderRangoResult(c) {
   const rows = c.rows.map((r) => `
     <tr class="${r.best ? "best" : ""}">
       <td>${r.strike.toFixed(2)}</td>
-      <td>${r.price.toFixed(2)}</td>
-      <td>$${r.cost.toFixed(2)}</td>
-      <td class="strong">${r.day_low != null ? "$" + r.day_low.toFixed(0) + " – $" + r.day_high.toFixed(0) : "—"}</td>
-      <td class="${r.day_pct != null ? "up" : "dim"}">${r.day_pct != null ? "+" + r.day_pct.toFixed(1) + "%" : "—"}</td>
+      <td>${r.cost.toFixed(0)}</td>
+      <td class="strong">${r.day_low != null ? r.day_low.toFixed(0) + " – " + r.day_high.toFixed(0) : "—"}</td>
+      <td class="${r.day_pct != null ? "up" : "dim"}">${r.day_pct != null ? r.day_pct.toFixed(1) : "—"}</td>
     </tr>`).join("");
 
   el.innerHTML = `
@@ -2314,7 +2313,7 @@ function renderRangoResult(c) {
         <div class="dim">Calculado ${c.calculated_at_cdmx} CDMX (${c.calculated_at_et} NY)</div>
       </div>
       <table class="rango-table">
-        <thead><tr><th>STRIKE</th><th>PRIMA</th><th>CONTRATO</th><th>RANGO DEL DÍA</th><th>%</th></tr></thead>
+        <thead><tr><th>STRIKE</th><th>PRECIO</th><th>RANGO</th><th>PORCENTAJES</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
