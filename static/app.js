@@ -207,7 +207,6 @@ function buildPaneDom(letter) {
         <div class="color-menu hidden"></div>
       </div>
       <span class="spacer"></span>
-      <button class="btn-toggle-ext tool-btn" data-pane="${letter}" title="Sesión extendida: premarket y postmarket (solo intradía)">EXT</button>
       <button class="btn-toggle-ma tool-btn" data-pane="${letter}" title="Mostrar/ocultar medias móviles"><i class="fa-solid fa-wave-square"></i></button>
       <button class="btn-toggle-dma tool-btn" data-pane="${letter}" title="Mostrar/ocultar niveles de MAs diarias (D1) en intradía">D1</button>
       <button class="btn-toggle-bb tool-btn active" data-pane="${letter}" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
@@ -250,7 +249,7 @@ function createPane(letter, defaultInterval) {
     stochVisible: localStorage.getItem(`stochVisible:${letter}`) === "1",
     volSeries: null, stochSeries: null, stochLevelSeries: [],
     dmaVisible: localStorage.getItem(`dmaVisible:${letter}`) !== "0",
-    extVisible: localStorage.getItem(`extVisible:${letter}`) === "1", // sesión extendida (pre/post)
+    extVisible: false, // sesión extendida (pre/post): retirada de la barra por no ser útil en valores poco líquidos
     extPrimitive: null,
     targetPriceLine: null, alarmPriceLines: [], sessionPrimitive: null, prevClose: null,
     interval: defaultInterval, candles: [],
@@ -1451,27 +1450,6 @@ document.querySelectorAll(".btn-toggle-stoch").forEach((btn) => {
     localStorage.setItem(`stochVisible:${pane.letter}`, pane.stochVisible ? "1" : "0");
     btn.classList.toggle("active", pane.stochVisible);
     renderStochPane(pane);
-  });
-});
-
-// Sesión extendida (premarket + postmarket) en intradía, como el "ext" de TC2000.
-document.querySelectorAll(".btn-toggle-ext").forEach((btn) => {
-  const pane = panes[btn.dataset.pane];
-  btn.classList.toggle("active", pane.extVisible);
-  btn.addEventListener("click", async () => {
-    pane.extVisible = !pane.extVisible;
-    localStorage.setItem(`extVisible:${pane.letter}`, pane.extVisible ? "1" : "0");
-    btn.classList.toggle("active", pane.extVisible);
-    if (pane.interval === "1d") { toast("La sesión extendida aplica a M15 y 1H."); return; }
-    btn.disabled = true;
-    try {
-      await loadCandles(pane);
-      applyDailyMaLines(pane);
-    } catch (e) {
-      toast("Error al cargar: " + e.message);
-    } finally {
-      btn.disabled = false;
-    }
   });
 });
 
