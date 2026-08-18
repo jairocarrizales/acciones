@@ -138,7 +138,9 @@ def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEF
     if not eligible:
         raise RangosError(
             f"Ningún contrato OTM cuesta ≥ ${min_price:g}. Baja el mínimo en ajustes.")
-    eligible.sort(key=lambda r: abs(r["strike"] - spot))
+    # Se toman los MÁS BARATOS de la escala OTM que aún cumplen el coste mínimo:
+    # son los más lejanos al precio actual y los de mayor rentabilidad potencial.
+    eligible.sort(key=lambda r: r["price"])
     rows = eligible[:count]
     rows.sort(key=lambda r: r["strike"])
 
