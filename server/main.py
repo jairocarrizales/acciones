@@ -812,7 +812,8 @@ async def guardar_rango(body: RangoIn):
     except rangos.RangosError as e:
         raise HTTPException(502, str(e))
     rid = db.add_rango(calc["symbol"], calc["kind"], calc["expiration"], calc["spot"],
-                       calc["direction"], calc["change_pct"], calc)
+                       calc["direction"], calc["change_pct"], calc,
+                       calc.get("range_min"), calc.get("range_max"))
     return {"id": rid, **calc}
 
 

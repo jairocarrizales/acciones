@@ -116,6 +116,33 @@ input, select, textarea {
 /* panel de rango de precios (derecha) */
 #app.with-rangos { grid-template-columns: 260px 1fr 340px; grid-template-areas: "top top top" "left main rangos"; }
 #app.with-rangos.collapse-left { grid-template-columns: 42px 1fr 340px; }
+
+/* modo ancho: el panel ocupa toda la pantalla y las tarjetas van en cuadrícula */
+#app.rangos-wide {
+  grid-template-columns: 1fr !important;
+  grid-template-areas: "top" "rangos" !important;
+}
+#app.rangos-wide #sidebar-left, #app.rangos-wide #chartArea { display: none; }
+#app.rangos-wide #sidebar-rangos { border-left: none; width: 100%; }
+#app.rangos-wide .rangos-form { flex-direction: row; align-items: center; max-width: 900px; }
+#app.rangos-wide .rangos-form select { width: 320px; }
+#app.rangos-wide .rango-kind { width: 200px; }
+#app.rangos-wide #btnCalcRango { width: 220px; }
+#app.rangos-wide .rango-cfg { display: flex; gap: 16px; align-items: flex-end; }
+#app.rangos-wide .rango-cfg.hidden { display: none; }
+#app.rangos-wide .rango-cfg label { margin-bottom: 0; min-width: 200px; }
+#app.rangos-wide .rango-timing { max-width: 900px; }
+#app.rangos-wide .rango-result { max-width: 900px; }
+#app.rangos-wide #rangosHist {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px; padding: 10px 16px 24px;
+}
+/* en modo ancho las tarjetas van justo bajo el formulario, no al fondo */
+#app.rangos-wide .rangos-hist-head { margin-top: 0; }
+#app.rangos-wide .rango-hist-item {
+  background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+}
+#app.rangos-wide .rango-hist-item:hover { border-color: var(--accent); background: var(--bg-panel-2); }
 #sidebar-rangos {
   grid-area: rangos; background: var(--bg-panel); border-left: 1px solid var(--border);
   overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column;
@@ -207,6 +234,8 @@ input, select, textarea {
 .rh-del { margin-left: auto; opacity: 0; font-size: 10px; padding: 1px 5px; }
 .rango-hist-item:hover .rh-del { opacity: 1; }
 .rh-sub { color: var(--text-dim); font-size: 10px; margin-top: 2px; }
+.rh-range { font-size: 16px; font-weight: 700; margin-top: 4px; }
+.rh-range i { font-size: 10px; color: var(--text-dim); margin: 0 4px; }
 
 .panel-head {
   display: flex; align-items: center; justify-content: space-between;

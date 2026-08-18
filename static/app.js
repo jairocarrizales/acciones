@@ -2236,6 +2236,11 @@ let rangoKind = "call";
 function openRangosPanel() {
   rangosPanel.classList.remove("hidden");
   appEl.classList.add("with-rangos");
+  if (localStorage.getItem("rangosWide") === "1") {
+    appEl.classList.add("rangos-wide");
+    const i = document.querySelector("#btnExpandRangos i");
+    if (i) i.className = "fa-solid fa-down-left-and-up-right-to-center";
+  }
   document.getElementById("btnRangos").classList.add("active");
   fillRangoSymbols();
   loadRangoCfg();
@@ -2245,7 +2250,7 @@ function openRangosPanel() {
 
 function closeRangosPanel() {
   rangosPanel.classList.add("hidden");
-  appEl.classList.remove("with-rangos");
+  appEl.classList.remove("with-rangos", "rangos-wide");
   document.getElementById("btnRangos").classList.remove("active");
   requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
 }
@@ -2343,6 +2348,17 @@ document.getElementById("btnRangoCfg").addEventListener("click", () => {
   document.getElementById("rangoCfgBox").classList.toggle("hidden");
 });
 
+// Modo ancho: el panel ocupa toda la pantalla y las tarjetas guardadas se
+// distribuyen en cuadrícula, para tener muchos activos a la vista.
+document.getElementById("btnExpandRangos").addEventListener("click", () => {
+  const wide = appEl.classList.toggle("rangos-wide");
+  localStorage.setItem("rangosWide", wide ? "1" : "0");
+  const i = document.querySelector("#btnExpandRangos i");
+  i.className = wide ? "fa-solid fa-down-left-and-up-right-to-center" : "fa-solid fa-up-right-and-down-left-from-center";
+  document.getElementById("btnExpandRangos").title = wide ? "Volver al panel lateral" : "Pantalla completa";
+  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
+});
+
 document.getElementById("btnSaveRangoCfg").addEventListener("click", async () => {
   const min_price = parseFloat(document.getElementById("cfgMinPrice").value);
   const max_price = parseFloat(document.getElementById("cfgMaxPrice").value);
@@ -2368,7 +2384,11 @@ async function loadRangosHist() {
   try {
     const list = await api("/api/rangos");
     if (!list.length) { el.innerHTML = `<p class="hint">Aún no hay cálculos guardados.</p>`; return; }
-    el.innerHTML = list.map((r) => `
+    // Cada cálculo guardado es una tarjeta con su rango óptimo a la vista.
+    el.innerHTML = list.map((r) => {
+      const rmin = r.range_min != null ? `$${r.range_min.toFixed(0)}` : "—";
+      const rmax = r.range_max != null ? `$${r.range_max.toFixed(0)}` : "—";
+      return `
       <div class="rango-hist-item" data-id="${r.id}">
         <div class="rh-top">
           <b>${r.symbol}</b>
@@ -2376,8 +2396,10 @@ async function loadRangosHist() {
           <span class="rh-dir ${r.direction === "alcista" ? "up" : r.direction === "bajista" ? "down" : ""}">${r.direction}</span>
           <button class="rh-del" data-del="${r.id}" title="Eliminar"><i class="fa-solid fa-xmark"></i></button>
         </div>
+        <div class="rh-range">${rmin} <i class="fa-solid fa-arrow-right-long"></i> ${rmax}</div>
         <div class="rh-sub">${r.created_at} · vence ${r.expiration} · spot $${r.spot.toFixed(2)}</div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
     el.querySelectorAll(".rango-hist-item").forEach((it) => it.addEventListener("click", async (e) => {
       if (e.target.closest(".rh-del")) return;
       try {

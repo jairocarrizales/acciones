@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS rangos (
     spot REAL NOT NULL,
     direction TEXT NOT NULL,         -- 'alcista' | 'bajista' | 'neutro'
     change_pct REAL,
+    range_min REAL,
+    range_max REAL,
     data TEXT NOT NULL,              -- cálculo completo (filas usadas, timing, etc.)
     created_at TEXT DEFAULT (datetime('now','localtime'))
 );
@@ -144,6 +146,10 @@ def init_db():
         symbols_cols = {r["name"] for r in conn.execute("PRAGMA table_info(symbols)")}
         if "favorite" not in symbols_cols:
             conn.execute("ALTER TABLE symbols ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")
+        rangos_cols = {r["name"] for r in conn.execute("PRAGMA table_info(rangos)")}
+        if rangos_cols and "range_min" not in rangos_cols:
+            conn.execute("ALTER TABLE rangos ADD COLUMN range_min REAL")
+            conn.execute("ALTER TABLE rangos ADD COLUMN range_max REAL")
         if conn.execute("SELECT COUNT(*) c FROM settings WHERE key='api_key'").fetchone()["c"] == 0:
             conn.execute("INSERT INTO settings (key, value) VALUES ('api_key', ?)", (DEFAULT_API_KEY,))
         if conn.execute("SELECT COUNT(*) c FROM ma_config WHERE scope='global'").fetchone()["c"] == 0:
@@ -436,11 +442,13 @@ def get_rangos(symbol=None, limit=200):
     with connect() as conn:
         if symbol:
             rows = conn.execute(
-                "SELECT id, symbol, kind, expiration, spot, direction, change_pct, created_at "
+                "SELECT id, symbol, kind, expiration, spot, direction, change_pct, "
+                "range_min, range_max, created_at "
                 "FROM rangos WHERE symbol=? ORDER BY id DESC LIMIT ?", (symbol.upper(), limit))
         else:
             rows = conn.execute(
-                "SELECT id, symbol, kind, expiration, spot, direction, change_pct, created_at "
+                "SELECT id, symbol, kind, expiration, spot, direction, change_pct, "
+                "range_min, range_max, created_at "
                 "FROM rangos ORDER BY id DESC LIMIT ?", (limit,))
         return [dict(r) for r in rows]
 
@@ -456,12 +464,14 @@ def get_rango(rid):
         return d
 
 
-def add_rango(symbol, kind, expiration, spot, direction, change_pct, data):
+def add_rango(symbol, kind, expiration, spot, direction, change_pct, data,
+              range_min=None, range_max=None):
     with connect() as conn:
         cur = conn.execute(
-            "INSERT INTO rangos (symbol, kind, expiration, spot, direction, change_pct, data) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (symbol.upper(), kind, expiration, spot, direction, change_pct, json.dumps(data)))
+            "INSERT INTO rangos (symbol, kind, expiration, spot, direction, change_pct, "
+            "range_min, range_max, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (symbol.upper(), kind, expiration, spot, direction, change_pct,
+             range_min, range_max, json.dumps(data)))
         return cur.lastrowid
 
 
