@@ -70,9 +70,17 @@ async def fetch_chain(symbol: str):
 
 
 def _row(contract, spot, kind):
-    """Fila del cálculo para un contrato: strike, precio, rango y porcentaje."""
+    """Fila del cálculo para un contrato: strike, precio, rango y porcentaje.
+
+    El precio se toma del punto medio entre bid y ask (el mercado vigente). El
+    "último negociado" solo se usa como respaldo: en contratos con poco volumen
+    puede ser de hace horas y produce rangos disparatados.
+    """
     strike = contract.get("strike")
-    price = contract.get("lastPrice")
+    bid, ask = contract.get("bid") or 0, contract.get("ask") or 0
+    last = contract.get("lastPrice")
+    price = (bid + ask) / 2 if (bid > 0 and ask > 0) else last
+    price_source = "medio" if (bid > 0 and ask > 0) else "ultimo"
     if strike is None or price is None:
         return None
     # Call: equilibrio por encima (strike + prima). Put: por debajo (strike - prima).
@@ -81,6 +89,9 @@ def _row(contract, spot, kind):
     return {
         "strike": round(strike, 4),
         "price": round(price, 4),
+        "cost": round(price * CONTRACT_SIZE, 2),  # lo que cuesta el contrato en dólares
+        "price_source": price_source,
+        "last": round(last, 4) if last is not None else None,
         "range": round(rango, 4),
         "pct": round(pct, 3),
         "bid": contract.get("bid"),
@@ -92,8 +103,11 @@ def _row(contract, spot, kind):
 
 
 # Ajustes por defecto del cálculo (configurables desde la tuerca del panel).
-DEFAULT_MIN_PRICE = 20.0   # precio mínimo del contrato en dólares
+# El mínimo se expresa en DÓLARES DE COSTO del contrato: como cada contrato
+# cubre 100 acciones, $20 equivale a una prima de 0.20 en la cadena de opciones.
+DEFAULT_MIN_PRICE = 20.0   # coste mínimo del contrato en dólares
 DEFAULT_COUNT = 8          # cuántos contratos se usan
+CONTRACT_SIZE = 100        # acciones por contrato
 
 
 def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEFAULT_COUNT):
@@ -115,10 +129,15 @@ def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEF
         raise RangosError("El vencimiento no tiene contratos con precio")
 
     # Filtro por precio mínimo y selección de los más cercanos al precio actual.
-    eligible = [r for r in all_rows if r["price"] >= min_price]
+    # Solo contratos OTM (fuera del dinero), que son los que se usan en el método:
+    # en calls, strike por encima del precio; en puts, por debajo.
+    otm = [r for r in all_rows if (r["strike"] > spot if kind == "call" else r["strike"] < spot)]
+    # min_price está en dólares de coste: se compara contra prima * 100.
+    min_premium = min_price / CONTRACT_SIZE
+    eligible = [r for r in otm if r["price"] >= min_premium]
     if not eligible:
         raise RangosError(
-            f"Ningún contrato con precio ≥ ${min_price:g}. Baja el precio mínimo en ajustes.")
+            f"Ningún contrato OTM cuesta ≥ ${min_price:g}. Baja el mínimo en ajustes.")
     eligible.sort(key=lambda r: abs(r["strike"] - spot))
     rows = eligible[:count]
     rows.sort(key=lambda r: r["strike"])
@@ -133,6 +152,10 @@ def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEF
     # Rango óptimo: del menor al mayor de los rangos calculados.
     range_values = [r["range"] for r in rows]
     range_min, range_max = min(range_values), max(range_values)
+
+    # Se resaltan los dos porcentajes más altos, como en la hoja del video.
+    for r in sorted(rows, key=lambda r: r["pct"], reverse=True)[:2]:
+        r["best"] = True
 
     return {
         "symbol": (quote.get("symbol") or "").upper(),

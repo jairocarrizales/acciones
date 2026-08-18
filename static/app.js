@@ -2283,8 +2283,9 @@ function renderRangoResult(c) {
   const el = document.getElementById("rangoResult");
   if (!c) { el.innerHTML = ""; return; }
   const dirCls = c.direction === "alcista" ? "up" : c.direction === "bajista" ? "down" : "";
+  // Las dos filas de mayor porcentaje van sombreadas, como en la hoja del video.
   const rows = c.rows.map((r) => `
-    <tr class="${r.in_the_money ? "itm" : ""}">
+    <tr class="${r.best ? "best" : ""}">
       <td>${r.strike.toFixed(2)}</td>
       <td>${r.price.toFixed(2)}</td>
       <td class="strong">${r.range.toFixed(2)}</td>

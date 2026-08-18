@@ -186,7 +186,8 @@ input, select, textarea {
 .rango-table td { text-align: right; padding: 4px; border-bottom: 1px solid rgba(140,150,170,0.10); }
 .rango-table td.strong { font-weight: 700; }
 .rango-table td.dim { color: var(--text-dim); }
-.rango-table tr.itm { background: rgba(59,130,246,0.08); }
+.rango-table tr.best { background: rgba(250,204,21,0.22); }
+.rango-table tr.best td { font-weight: 700; }
 
 .rangos-hist-head {
   display: flex; align-items: center; justify-content: space-between;
