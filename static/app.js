@@ -2288,9 +2288,9 @@ function renderRangoResult(c) {
     <tr class="${r.best ? "best" : ""}">
       <td>${r.strike.toFixed(2)}</td>
       <td>${r.price.toFixed(2)}</td>
-      <td class="strong">${r.range.toFixed(2)}</td>
+      <td class="strong">$${r.cost.toFixed(2)}</td>
+      <td>${r.range.toFixed(2)}</td>
       <td class="${r.pct >= 0 ? "up" : "down"}">${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%</td>
-      <td class="dim">${r.volume ?? 0}</td>
     </tr>`).join("");
 
   el.innerHTML = `
@@ -2301,9 +2301,9 @@ function renderRangoResult(c) {
         <span class="rc-dir ${dirCls}">${c.direction}</span>
         <i class="fa-solid fa-chevron-down rc-caret"></i>
       </div>
-      <div class="rc-label">Rango óptimo de precio</div>
+      <div class="rc-label">Rango óptimo · precio del contrato</div>
       <div class="rc-range"><span>$${c.range_min.toFixed(2)}</span><i class="fa-solid fa-arrow-right-long"></i><span>$${c.range_max.toFixed(2)}</span></div>
-      <div class="rc-sub">Precio actual $${c.spot.toFixed(2)} · vence ${c.expiration}</div>
+      <div class="rc-sub">${c.symbol} a $${c.spot.toFixed(2)} · vence ${c.expiration}</div>
     </div>
     <div class="rango-detail hidden">
       <div class="rango-meta">
@@ -2314,7 +2314,7 @@ function renderRangoResult(c) {
         <div class="dim">Calculado ${c.calculated_at_cdmx} CDMX (${c.calculated_at_et} NY)</div>
       </div>
       <table class="rango-table">
-        <thead><tr><th>STRIKE</th><th>PRECIO</th><th>RANGO</th><th>%</th><th>VOL</th></tr></thead>
+        <thead><tr><th>STRIKE</th><th>PRIMA</th><th>CONTRATO</th><th>RANGO</th><th>%</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;

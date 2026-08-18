@@ -151,9 +151,10 @@ def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEF
     if change_pct is None and prev_close:
         change_pct = (spot / prev_close - 1) * 100
 
-    # Rango óptimo: del menor al mayor de los rangos calculados.
-    range_values = [r["range"] for r in rows]
-    range_min, range_max = min(range_values), max(range_values)
+    # Rango óptimo: lo que CUESTA el contrato, del más barato al más caro de los
+    # usados (es el rango de precio del contrato, no del precio de la acción).
+    cost_values = [r["cost"] for r in rows]
+    range_min, range_max = min(cost_values), max(cost_values)
 
     # Se resaltan los dos porcentajes más altos, como en la hoja del video.
     for r in sorted(rows, key=lambda r: r["pct"], reverse=True)[:2]:
@@ -167,8 +168,8 @@ def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEF
         "count": count,
         "range_min": round(range_min, 4),
         "range_max": round(range_max, 4),
-        "range_min_pct": round((range_min / spot - 1) * 100, 3),
-        "range_max_pct": round((range_max / spot - 1) * 100, 3),
+        # Cuánto más caro es el contrato más caro respecto al más barato.
+        "range_spread_pct": round((range_max / range_min - 1) * 100, 2) if range_min else None,
         "available": len(all_rows),
         "eligible": len(eligible),
         "previous_close": round(prev_close, 4) if prev_close else None,
