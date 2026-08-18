@@ -252,6 +252,7 @@ input, select, textarea {
 .pane-chart-container.drawing-armed { cursor: crosshair; }
 
 #btnSplitView.active,
+#btnToggleSidebar.active,
 .tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 .btn-toggle-dma, .btn-toggle-ext { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }

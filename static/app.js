@@ -2252,13 +2252,23 @@ const appEl = document.getElementById("app");
 const leftSidebar = document.getElementById("sidebar-left");
 const btnCollapseLeft = document.getElementById("btnCollapseLeft");
 
+const btnToggleSidebar = document.getElementById("btnToggleSidebar");
+
 function setLeftCollapsed(collapsed) {
   leftSidebar.classList.toggle("collapsed", collapsed);
   appEl.classList.toggle("collapse-left", collapsed);
   localStorage.setItem("leftCollapsed", collapsed ? "1" : "0");
+  // El botón de la barra superior refleja el estado (resaltado = lista oculta).
+  if (btnToggleSidebar) {
+    btnToggleSidebar.classList.toggle("active", collapsed);
+    btnToggleSidebar.title = collapsed ? "Mostrar la lista de seguimiento" : "Ocultar la lista de seguimiento";
+  }
+  // Los gráficos cambian de ancho: reenfocar las últimas velas.
+  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
 }
 
 btnCollapseLeft.addEventListener("click", () => setLeftCollapsed(!leftSidebar.classList.contains("collapsed")));
+if (btnToggleSidebar) btnToggleSidebar.addEventListener("click", () => setLeftCollapsed(!leftSidebar.classList.contains("collapsed")));
 
 setLeftCollapsed(localStorage.getItem("leftCollapsed") === "1");
 
