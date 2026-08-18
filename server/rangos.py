@@ -192,10 +192,7 @@ async def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE,
     if change_pct is None and prev_close:
         change_pct = (spot / prev_close - 1) * 100
 
-    # Rango óptimo: lo que CUESTA el contrato, del más barato al más caro de los
-    # usados (es el rango de precio del contrato, no del precio de la acción).
-    cost_values = [r["cost"] for r in rows]
-    range_min, range_max = min(cost_values), max(cost_values)
+    # (el rango óptimo se calcula más abajo, con los dos de mayor rentabilidad)
 
     # Rango del día de cada contrato ("Day's Range"): el mínimo y el máximo que
     # llegó a costar la opción hoy. De ahí sale la rentabilidad del movimiento.
@@ -212,8 +209,15 @@ async def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE,
 
     # Se resaltan los dos de mayor rentabilidad del día, como en la hoja.
     with_pct = [r for r in rows if r.get("day_pct") is not None]
-    for r in sorted(with_pct, key=lambda r: r["day_pct"], reverse=True)[:2]:
+    best_two = sorted(with_pct, key=lambda r: r["day_pct"], reverse=True)[:2]
+    for r in best_two:
         r["best"] = True
+
+    # Rango óptimo: el precio de esos DOS contratos, el menor primero y el mayor
+    # al final (no el primero y el último de toda la lista).
+    ref = best_two or rows
+    costs = [r["cost"] for r in ref]
+    range_min, range_max = min(costs), max(costs)
 
     return {
         "symbol": (quote.get("symbol") or "").upper(),
