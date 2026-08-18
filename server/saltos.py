@@ -138,20 +138,29 @@ async def scan_symbol(client, symbol, cutoff_ts=None):
     return detect_consolidation(candles, cutoff_ts)
 
 
-async def fetch_open_snapshot(client, symbol):
-    """Vela de 1 min de las 9:30 ET de hoy, tal como va formándose: en vivo (9:30:05)
-    su máximo/mínimo ya recoge el disparo de los primeros segundos; en una prueba
-    retrospectiva recoge el primer minuto completo. None si aún no existe."""
+async def fetch_open_snapshot(client, symbol, until_minute=35):
+    """Movimiento de apertura de hoy: apertura de la vela de las 9:30 y el máximo/mínimo
+    de TODAS las velas de 1 min desde las 9:30 hasta las 9:until_minute (inclusive de
+    las que van formándose). Se llama repetidamente durante la ventana de vigilancia,
+    así el disparo se detecta tanto si ocurre en los primeros segundos como si se
+    materializa en los minutos 2-4. None si la vela de las 9:30 aún no existe."""
     try:
         candles = await _fetch_chart(client, symbol, "1m", "1d")
     except (SaltosError, httpx.HTTPError):
         return None
     today = datetime.now(MARKET_TZ).date()
+    open_price, hi, lo = None, None, None
     for c in candles:
         dt = datetime.fromtimestamp(c["ts"], MARKET_TZ)
-        if dt.date() == today and dt.hour == 9 and dt.minute == 30:
-            return {"open": c["open"], "high": c["high"], "low": c["low"]}
-    return None
+        if dt.date() != today or dt.hour != 9 or dt.minute < 30 or dt.minute > until_minute:
+            continue
+        if dt.minute == 30:
+            open_price = c["open"]
+        hi = c["high"] if hi is None else max(hi, c["high"])
+        lo = c["low"] if lo is None else min(lo, c["low"])
+    if open_price is None:
+        return None
+    return {"open": open_price, "high": hi, "low": lo}
 
 
 def pick_extreme(candidate, prices):

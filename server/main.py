@@ -309,10 +309,23 @@ async def _saltos_scan(cutoff_ts=None):
         _saltos_state["scanning"] = False
 
 
-async def _saltos_evaluate(use_last_price=False):
-    """Evalúa el gap de apertura de cada candidato contra su rango consolidado."""
+async def _saltos_evaluate(use_last_price=False, finalize=True, until_minute=35):
+    """Evalúa el movimiento de apertura de cada candidato contra su rango consolidado.
+
+    Una sola pasada de la ventana de vigilancia: mira las velas de 1 min desde las 9:30
+    hasta 9:until_minute y marca el salto en cuanto el precio se aleja lo suficiente.
+    Un candidato ya marcado como salto no se reevalúa (la señal no se retira).
+    finalize=False deja la fase en "consolidado" para que la vigilancia continúe.
+    """
     cands = _saltos_state["candidates"]
     if not cands:
+        return
+    pending = [t for t in cands if cands[t].get("status") not in ("salto_alza", "salto_baja")]
+    if not pending:
+        # Todos marcados ya: no hay nada que reevaluar, pero la ventana debe poder cerrarse.
+        if finalize:
+            _saltos_state["phase"] = "evaluado"
+            _saltos_state["updated_at"] = datetime.now(saltos.MARKET_TZ).strftime("%H:%M:%S ET")
         return
     sem = asyncio.Semaphore(5)
     async with saltos.make_client() as client:
@@ -320,21 +333,16 @@ async def _saltos_evaluate(use_last_price=False):
             async with sem:
                 snap = None
                 if not use_last_price:
-                    for _ in range(6):  # la vela de 9:30 puede tardar unos segundos en aparecer
-                        snap = await saltos.fetch_open_snapshot(client, t)
-                        if snap is not None:
-                            break
-                        await asyncio.sleep(3)
+                    snap = await saltos.fetch_open_snapshot(client, t, until_minute)
                 if snap is None:
                     price = await saltos.fetch_last_price(client, t)
                     snap = {"open": None, "high": None, "low": None, "last": price}
                 return t, snap
-        results = await asyncio.gather(*(one(t) for t in cands))
+        results = await asyncio.gather(*(one(t) for t in pending))
     mult = _get_jump_pct() / 100.0
     for t, snap in results:
-        # Se evalúa el precio que más se alejó del rango en la vela de las 9:30
-        # (apertura, máximo o mínimo), para capturar el disparo de los primeros
-        # segundos aunque la apertura exacta haya quedado dentro del rango.
+        # Se evalúa el precio que más se alejó del rango durante la ventana de apertura
+        # (apertura, máximo o mínimo acumulados), no solo la apertura exacta.
         prices = [p for p in (snap["open"], snap["high"], snap["low"], snap.get("last")) if p is not None]
         if not prices:
             continue
@@ -344,8 +352,8 @@ async def _saltos_evaluate(use_last_price=False):
         cands[t].update(open_price=round(shown_open, 4), eval_price=round(eval_price, 4), **verdict)
     now_et = datetime.now(saltos.MARKET_TZ)
     # Una prueba manual antes de la apertura no marca la fase, para no suprimir
-    # la evaluación real de las 9:30:05 (que solo corre si la fase es "consolidado").
-    if not use_last_price or now_et.time() >= dtime(9, 30):
+    # la evaluación real de la ventana (que solo corre si la fase es "consolidado").
+    if finalize and (not use_last_price or now_et.time() >= dtime(9, 30)):
         _saltos_state["phase"] = "evaluado"
     _saltos_state["updated_at"] = now_et.strftime("%H:%M:%S ET")
 
@@ -366,18 +374,28 @@ async def saltos_watcher():
                         await _saltos_scan()
                         last_scan_ts = time.time()
                 elif dtime(9, 30, 5) <= t < dtime(16, 0):
+                    in_window = t < dtime(9, 35)  # ventana de vigilancia de la apertura
                     if _saltos_state["date"] == today and _saltos_state["phase"] == "consolidado":
-                        await _saltos_evaluate()
+                        # Durante la ventana se revisa repetidamente (cada ~10 s) y el salto
+                        # se marca en cuanto aparece; al cerrarse la ventana se da por evaluado.
+                        await _saltos_evaluate(finalize=not in_window)
                     elif _saltos_state["date"] != today and not _saltos_state["scanning"]:
                         # Recuperación: el premarket de hoy no se escaneó (servidor apagado).
                         await _saltos_scan(cutoff_ts=_premarket_cutoff_ts())
-                        await _saltos_evaluate()
+                        await _saltos_evaluate(finalize=not in_window)
         except Exception:
             pass
-        # Cerca de la apertura afinamos el reloj para disparar a las 9:30:05 en punto.
+        # Cerca de la apertura afinamos el reloj para disparar a las 9:30:05 en punto,
+        # y durante la ventana 9:30-9:35 se revisa cada 10 s.
         now_et = datetime.now(saltos.MARKET_TZ)
-        near_open = now_et.weekday() < 5 and dtime(9, 28) <= now_et.time() < dtime(9, 31)
-        await asyncio.sleep(1 if near_open else 30)
+        t = now_et.time()
+        if now_et.weekday() < 5 and dtime(9, 28) <= t < dtime(9, 31):
+            delay = 1
+        elif now_et.weekday() < 5 and dtime(9, 31) <= t < dtime(9, 35):
+            delay = 10
+        else:
+            delay = 30
+        await asyncio.sleep(delay)
 
 
 def _get_saltos_hearts():
