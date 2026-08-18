@@ -744,6 +744,7 @@ class RangoIn(BaseModel):
     symbol: str
     kind: str = "call"  # 'call' | 'put'
     min_price: float | None = None
+    max_price: float | None = None
     count: int | None = None
 
 
@@ -753,14 +754,16 @@ def _rango_opts(body: RangoIn):
         raise HTTPException(400, "kind debe ser 'call' o 'put'")
     cfg = _get_rangos_config()
     min_price = body.min_price if body.min_price is not None else cfg["min_price"]
+    max_price = body.max_price if body.max_price is not None else cfg["max_price"]
     count = body.count if body.count is not None else cfg["count"]
-    if min_price < 0 or count < 1 or count > 100:
-        raise HTTPException(400, "Ajustes inválidos (precio mínimo ≥ 0, cantidad entre 1 y 100)")
-    return min_price, count
+    if min_price < 0 or max_price <= min_price or count < 1 or count > 100:
+        raise HTTPException(400, "Ajustes inválidos (0 ≤ mínimo < máximo, cantidad entre 1 y 100)")
+    return min_price, max_price, count
 
 
 class RangosConfigIn(BaseModel):
     min_price: float
+    max_price: float
     count: int
 
 
@@ -771,6 +774,7 @@ def _get_rangos_config():
         cfg = {}
     return {
         "min_price": float(cfg.get("min_price", rangos.DEFAULT_MIN_PRICE)),
+        "max_price": float(cfg.get("max_price", rangos.DEFAULT_MAX_PRICE)),
         "count": int(cfg.get("count", rangos.DEFAULT_COUNT)),
     }
 
@@ -782,18 +786,19 @@ def get_rangos_config():
 
 @app.post("/api/rangos/config")
 def set_rangos_config(body: RangosConfigIn):
-    if body.min_price < 0 or body.count < 1 or body.count > 100:
-        raise HTTPException(400, "Ajustes inválidos (precio mínimo ≥ 0, cantidad entre 1 y 100)")
-    db.set_setting("rangos_config", json.dumps({"min_price": body.min_price, "count": body.count}))
+    if body.min_price < 0 or body.max_price <= body.min_price or body.count < 1 or body.count > 100:
+        raise HTTPException(400, "Ajustes inválidos (0 ≤ mínimo < máximo, cantidad entre 1 y 100)")
+    db.set_setting("rangos_config", json.dumps(
+        {"min_price": body.min_price, "max_price": body.max_price, "count": body.count}))
     return _get_rangos_config()
 
 
 @app.post("/api/rangos/calcular")
 async def calcular_rango(body: RangoIn):
     """Calcula el rango SIN guardarlo (vista previa)."""
-    min_price, count = _rango_opts(body)
+    min_price, max_price, count = _rango_opts(body)
     try:
-        return await rangos.calculate(body.symbol.strip().upper(), body.kind, min_price, count)
+        return await rangos.calculate(body.symbol.strip().upper(), body.kind, min_price, max_price, count)
     except rangos.RangosError as e:
         raise HTTPException(502, str(e))
 
@@ -801,9 +806,9 @@ async def calcular_rango(body: RangoIn):
 @app.post("/api/rangos")
 async def guardar_rango(body: RangoIn):
     """Calcula y guarda el cálculo completo en la base de datos."""
-    min_price, count = _rango_opts(body)
+    min_price, max_price, count = _rango_opts(body)
     try:
-        calc = await rangos.calculate(body.symbol.strip().upper(), body.kind, min_price, count)
+        calc = await rangos.calculate(body.symbol.strip().upper(), body.kind, min_price, max_price, count)
     except rangos.RangosError as e:
         raise HTTPException(502, str(e))
     rid = db.add_rango(calc["symbol"], calc["kind"], calc["expiration"], calc["spot"],

@@ -28,6 +28,15 @@ class RangosError(Exception):
     pass
 
 
+# Ajustes por defecto del cálculo (configurables desde la tuerca del panel).
+# El mínimo se expresa en DÓLARES DE COSTO del contrato: como cada contrato
+# cubre 100 acciones, $20 equivale a una prima de 0.20 en la cadena de opciones.
+DEFAULT_MIN_PRICE = 20.0   # coste mínimo del contrato en dólares
+DEFAULT_MAX_PRICE = 600.0  # coste máximo del contrato en dólares
+DEFAULT_COUNT = 8          # cuántos contratos se usan
+CONTRACT_SIZE = 100        # acciones por contrato
+
+
 _crumb_cache = {"crumb": None, "cookies": None, "ts": 0.0}
 
 
@@ -69,6 +78,38 @@ async def fetch_chain(symbol: str):
     return result[0]
 
 
+async def fetch_day_ranges(symbols):
+    """Mínimo y máximo del día de cada contrato ("Day's Range" de su ficha en Yahoo).
+
+    No viene en la cadena de opciones: hay que consultar cada contrato por separado.
+    Devuelve {contractSymbol: (low, high)}; los que fallen quedan fuera.
+    """
+    out = {}
+    if not symbols:
+        return out
+    client, crumb = await _client_with_crumb()
+    try:
+        sem = asyncio.Semaphore(5)
+
+        async def one(cs):
+            async with sem:
+                try:
+                    r = await client.get(
+                        f"https://query1.finance.yahoo.com/v8/finance/chart/{cs}",
+                        params={"range": "1d", "interval": "1m", "crumb": crumb})
+                    meta = ((r.json().get("chart") or {}).get("result") or [{}])[0].get("meta") or {}
+                    lo, hi = meta.get("regularMarketDayLow"), meta.get("regularMarketDayHigh")
+                    if lo is not None and hi is not None and hi > 0:
+                        out[cs] = (lo, hi)
+                except (httpx.HTTPError, ValueError, KeyError, IndexError):
+                    pass
+
+        await asyncio.gather(*(one(cs) for cs in symbols))
+    finally:
+        await client.aclose()
+    return out
+
+
 def _row(contract, spot, kind):
     """Fila del cálculo para un contrato: strike, precio, rango y porcentaje.
 
@@ -87,6 +128,7 @@ def _row(contract, spot, kind):
     rango = strike + price if kind == "call" else strike - price
     pct = (rango / spot - 1) * 100 if spot else 0.0
     return {
+        "contract": contract.get("contractSymbol"),
         "strike": round(strike, 4),
         "price": round(price, 4),
         "cost": round(price * CONTRACT_SIZE, 2),  # lo que cuesta el contrato en dólares
@@ -102,15 +144,8 @@ def _row(contract, spot, kind):
     }
 
 
-# Ajustes por defecto del cálculo (configurables desde la tuerca del panel).
-# El mínimo se expresa en DÓLARES DE COSTO del contrato: como cada contrato
-# cubre 100 acciones, $20 equivale a una prima de 0.20 en la cadena de opciones.
-DEFAULT_MIN_PRICE = 20.0   # coste mínimo del contrato en dólares
-DEFAULT_COUNT = 8          # cuántos contratos se usan
-CONTRACT_SIZE = 100        # acciones por contrato
-
-
-def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEFAULT_COUNT):
+async def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE,
+                            max_price=DEFAULT_MAX_PRICE, count=DEFAULT_COUNT):
     """Construye el cálculo a partir de una cadena de opciones.
 
     Se usan solo los `count` contratos con precio >= `min_price` más cercanos al
@@ -131,18 +166,27 @@ def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEF
     # Filtro por precio mínimo y selección de los más cercanos al precio actual.
     # Solo contratos OTM (fuera del dinero), que son los que se usan en el método:
     # en calls, strike por encima del precio; en puts, por debajo.
-    otm = [r for r in all_rows if (r["strike"] > spot if kind == "call" else r["strike"] < spot)]
-    # min_price está en dólares de coste: se compara contra prima * 100.
-    min_premium = min_price / CONTRACT_SIZE
-    eligible = [r for r in otm if r["price"] >= min_premium]
-    if not eligible:
+    def is_otm(r):
+        return r["strike"] > spot if kind == "call" else r["strike"] < spot
+
+    def in_budget(r):
+        return min_price <= r["price"] * CONTRACT_SIZE <= max_price
+
+    # Preferencia: los OTM más baratos dentro del presupuesto. Si no alcanzan para
+    # `count`, se completa con los ITM más baratos que también entren.
+    otm_ok = sorted([r for r in all_rows if is_otm(r) and in_budget(r)], key=lambda r: r["price"])
+    rows = otm_ok[:count]
+    if len(rows) < count:
+        itm_ok = sorted([r for r in all_rows if not is_otm(r) and in_budget(r)],
+                        key=lambda r: r["price"])
+        rows += itm_ok[:count - len(rows)]
+    if not rows:
         raise RangosError(
-            f"Ningún contrato OTM cuesta ≥ ${min_price:g}. Baja el mínimo en ajustes.")
-    # Se toman los MÁS BARATOS de la escala OTM que aún cumplen el coste mínimo:
-    # son los más lejanos al precio actual y los de mayor rentabilidad potencial.
-    eligible.sort(key=lambda r: r["price"])
-    rows = eligible[:count]
+            f"Ningún contrato cuesta entre ${min_price:g} y ${max_price:g}. Ajusta los límites.")
+    for r in rows:
+        r["itm"] = not is_otm(r)
     rows.sort(key=lambda r: r["strike"])
+    eligible = otm_ok
 
     exp_ts = options.get("expirationDate")
     prev_close = quote.get("regularMarketPreviousClose")
@@ -156,8 +200,22 @@ def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEF
     cost_values = [r["cost"] for r in rows]
     range_min, range_max = min(cost_values), max(cost_values)
 
-    # Se resaltan los dos porcentajes más altos, como en la hoja del video.
-    for r in sorted(rows, key=lambda r: r["pct"], reverse=True)[:2]:
+    # Rango del día de cada contrato ("Day's Range"): el mínimo y el máximo que
+    # llegó a costar la opción hoy. De ahí sale la rentabilidad del movimiento.
+    day = await fetch_day_ranges([r["contract"] for r in rows if r.get("contract")])
+    for r in rows:
+        dr = day.get(r.get("contract"))
+        if not dr:
+            r["day_low"] = r["day_high"] = r["day_pct"] = None
+            continue
+        lo, hi = dr
+        r["day_low"] = round(lo * CONTRACT_SIZE, 2)    # coste mínimo del día
+        r["day_high"] = round(hi * CONTRACT_SIZE, 2)   # coste máximo del día
+        r["day_pct"] = round((hi / lo - 1) * 100, 1) if lo > 0 else None
+
+    # Se resaltan los dos de mayor rentabilidad del día, como en la hoja.
+    with_pct = [r for r in rows if r.get("day_pct") is not None]
+    for r in sorted(with_pct, key=lambda r: r["day_pct"], reverse=True)[:2]:
         r["best"] = True
 
     return {
@@ -165,6 +223,7 @@ def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEF
         "kind": kind,
         "spot": round(spot, 4),
         "min_price": min_price,
+        "max_price": max_price,
         "count": count,
         "range_min": round(range_min, 4),
         "range_max": round(range_max, 4),
@@ -229,11 +288,11 @@ def timing_advice(now_et=None):
     }
 
 
-async def calculate(symbol: str, kind: str = "call",
-                    min_price: float = DEFAULT_MIN_PRICE, count: int = DEFAULT_COUNT):
+async def calculate(symbol: str, kind: str = "call", min_price: float = DEFAULT_MIN_PRICE,
+                    max_price: float = DEFAULT_MAX_PRICE, count: int = DEFAULT_COUNT):
     """Cálculo completo (vencimiento más cercano) listo para guardar/mostrar."""
     chain = await fetch_chain(symbol)
-    calc = build_calculation(chain, kind, min_price, count)
+    calc = await build_calculation(chain, kind, min_price, max_price, count)
     calc["timing"] = timing_advice()
     now_cdmx = datetime.now(CDMX_TZ)
     calc["calculated_at_cdmx"] = now_cdmx.strftime("%Y-%m-%d %H:%M")

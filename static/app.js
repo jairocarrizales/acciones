@@ -2288,9 +2288,9 @@ function renderRangoResult(c) {
     <tr class="${r.best ? "best" : ""}">
       <td>${r.strike.toFixed(2)}</td>
       <td>${r.price.toFixed(2)}</td>
-      <td class="strong">$${r.cost.toFixed(2)}</td>
-      <td>${r.range.toFixed(2)}</td>
-      <td class="${r.pct >= 0 ? "up" : "down"}">${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%</td>
+      <td>$${r.cost.toFixed(2)}</td>
+      <td class="strong">${r.day_low != null ? "$" + r.day_low.toFixed(0) + " – $" + r.day_high.toFixed(0) : "—"}</td>
+      <td class="${r.day_pct != null ? "up" : "dim"}">${r.day_pct != null ? "+" + r.day_pct.toFixed(1) + "%" : "—"}</td>
     </tr>`).join("");
 
   el.innerHTML = `
@@ -2310,11 +2310,11 @@ function renderRangoResult(c) {
         <div>Precio actual <b>$${c.spot.toFixed(2)}</b>
           <span class="${dirCls}">${c.change_pct != null ? (c.change_pct >= 0 ? "+" : "") + c.change_pct.toFixed(2) + "%" : ""}</span>
           · día <b class="${dirCls}">${c.direction}</b></div>
-        <div class="dim">${c.count} datos con precio ≥ $${Number(c.min_price).toFixed(0)} · ${c.eligible} elegibles de ${c.available}</div>
+        <div class="dim">${c.rows.length} contratos entre $${Number(c.min_price).toFixed(0)} y $${Number(c.max_price).toFixed(0)} · ${c.eligible} OTM elegibles de ${c.available}</div>
         <div class="dim">Calculado ${c.calculated_at_cdmx} CDMX (${c.calculated_at_et} NY)</div>
       </div>
       <table class="rango-table">
-        <thead><tr><th>STRIKE</th><th>PRIMA</th><th>CONTRATO</th><th>RANGO</th><th>%</th></tr></thead>
+        <thead><tr><th>STRIKE</th><th>PRIMA</th><th>CONTRATO</th><th>RANGO DEL DÍA</th><th>%</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -2329,12 +2329,13 @@ function renderRangoResult(c) {
 
 // ---- ajustes del cálculo (precio mínimo y cantidad de datos) ----
 
-let rangoCfg = { min_price: 20, count: 8 };
+let rangoCfg = { min_price: 20, max_price: 600, count: 8 };
 
 async function loadRangoCfg() {
   try {
     rangoCfg = await api("/api/rangos/config");
     document.getElementById("cfgMinPrice").value = rangoCfg.min_price;
+    document.getElementById("cfgMaxPrice").value = rangoCfg.max_price;
     document.getElementById("cfgCount").value = rangoCfg.count;
   } catch (_) {}
 }
@@ -2345,18 +2346,19 @@ document.getElementById("btnRangoCfg").addEventListener("click", () => {
 
 document.getElementById("btnSaveRangoCfg").addEventListener("click", async () => {
   const min_price = parseFloat(document.getElementById("cfgMinPrice").value);
+  const max_price = parseFloat(document.getElementById("cfgMaxPrice").value);
   const count = parseInt(document.getElementById("cfgCount").value, 10);
-  if (!(min_price >= 0) || !(count >= 1 && count <= 100)) {
-    toast("Revisa los ajustes: precio mínimo ≥ 0 y cantidad entre 1 y 100.");
+  if (!(min_price >= 0) || !(max_price > min_price) || !(count >= 1 && count <= 100)) {
+    toast("Revisa los ajustes: 0 ≤ mínimo < máximo y cantidad entre 1 y 100.");
     return;
   }
   try {
     rangoCfg = await api("/api/rangos/config", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ min_price, count }),
+      body: JSON.stringify({ min_price, max_price, count }),
     });
     document.getElementById("rangoCfgBox").classList.add("hidden");
-    toast(`Ajustes guardados: mínimo $${min_price}, ${count} datos.`);
+    toast(`Ajustes guardados: $${min_price}-$${max_price}, ${count} datos.`);
   } catch (e) {
     toast("Error al guardar ajustes: " + e.message);
   }
