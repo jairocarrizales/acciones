@@ -2246,6 +2246,42 @@ document.getElementById("btnSaveApiKey").addEventListener("click", async () => {
   toast("API key guardada.");
 });
 
+// ---------------- pantalla completa ----------------
+// Usa la API Fullscreen del navegador (misma que F11) para dar toda la pantalla a los
+// gráficos. El icono alterna expandir/contraer y se reenfocan las velas al cambiar de tamaño.
+
+const btnFullscreen = document.getElementById("btnFullscreen");
+
+function isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+
+async function toggleFullscreen() {
+  try {
+    if (isFullscreen()) {
+      await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen());
+    } else {
+      const el = document.documentElement;
+      await (el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen());
+    }
+  } catch (e) {
+    toast("El navegador no permitió la pantalla completa: " + e.message);
+  }
+}
+
+function refreshFullscreenBtn() {
+  if (!btnFullscreen) return;
+  const fs = isFullscreen();
+  btnFullscreen.classList.toggle("active", fs);
+  btnFullscreen.querySelector("i").className = fs ? "fa-solid fa-compress" : "fa-solid fa-expand";
+  btnFullscreen.title = fs ? "Salir de pantalla completa (Esc)" : "Pantalla completa (F11 también)";
+  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
+}
+
+if (btnFullscreen) {
+  btnFullscreen.addEventListener("click", toggleFullscreen);
+  document.addEventListener("fullscreenchange", refreshFullscreenBtn);
+  document.addEventListener("webkitfullscreenchange", refreshFullscreenBtn);
+}
+
 // ---------------- collapsible sidebar ----------------
 
 const appEl = document.getElementById("app");
