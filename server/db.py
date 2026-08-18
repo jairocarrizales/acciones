@@ -91,6 +91,17 @@ CREATE TABLE IF NOT EXISTS alarms (
     triggered_price REAL,
     created_at TEXT DEFAULT (datetime('now','localtime'))
 );
+CREATE TABLE IF NOT EXISTS rangos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    kind TEXT NOT NULL,              -- 'call' | 'put'
+    expiration TEXT NOT NULL,
+    spot REAL NOT NULL,
+    direction TEXT NOT NULL,         -- 'alcista' | 'bajista' | 'neutro'
+    change_pct REAL,
+    data TEXT NOT NULL,              -- cálculo completo (filas usadas, timing, etc.)
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+);
 CREATE TABLE IF NOT EXISTS ma_config (
     scope TEXT PRIMARY KEY,
     config TEXT NOT NULL
@@ -416,6 +427,47 @@ def reactivate_alarm(aid):
 def delete_alarm(aid):
     with connect() as conn:
         conn.execute("DELETE FROM alarms WHERE id=?", (aid,))
+
+
+# ---------- rangos de precios (cálculo desde la cadena de opciones) ----------
+
+def get_rangos(symbol=None, limit=200):
+    """Histórico de cálculos (resumen, sin el detalle completo)."""
+    with connect() as conn:
+        if symbol:
+            rows = conn.execute(
+                "SELECT id, symbol, kind, expiration, spot, direction, change_pct, created_at "
+                "FROM rangos WHERE symbol=? ORDER BY id DESC LIMIT ?", (symbol.upper(), limit))
+        else:
+            rows = conn.execute(
+                "SELECT id, symbol, kind, expiration, spot, direction, change_pct, created_at "
+                "FROM rangos ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in rows]
+
+
+def get_rango(rid):
+    """Un cálculo con TODOS los datos que se usaron (para auditarlo)."""
+    with connect() as conn:
+        r = conn.execute("SELECT * FROM rangos WHERE id=?", (rid,)).fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        d["data"] = json.loads(d["data"])
+        return d
+
+
+def add_rango(symbol, kind, expiration, spot, direction, change_pct, data):
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO rangos (symbol, kind, expiration, spot, direction, change_pct, data) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (symbol.upper(), kind, expiration, spot, direction, change_pct, json.dumps(data)))
+        return cur.lastrowid
+
+
+def delete_rango(rid):
+    with connect() as conn:
+        conn.execute("DELETE FROM rangos WHERE id=?", (rid,))
 
 
 # ---------- ma config ----------

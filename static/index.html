@@ -30,6 +30,7 @@
       <button id="btnToggleSidebar" title="Mostrar/ocultar la lista de seguimiento"><i class="fa-solid fa-bars"></i></button>
       <button id="btnSplitView" title="Diseño de paneles: 1 / 2 / 4"><i class="fa-solid fa-table-columns"></i></button>
       <button id="btnFullscreen" title="Pantalla completa (F11 también)"><i class="fa-solid fa-expand"></i></button>
+      <button id="btnRangos" title="Calcular rango de precios (opciones)"><i class="fa-solid fa-calculator"></i></button>
       <button id="btnSnapshot" title="Guardar captura"><i class="fa-solid fa-camera"></i></button>
       <button id="btnTheme" title="Cambiar tema"><i id="themeIcon" class="fa-solid fa-moon"></i></button>
       <button id="btnSettings" title="Configuración"><i class="fa-solid fa-gear"></i></button>
@@ -81,6 +82,31 @@
     <!-- Los paneles (hasta 4) se generan desde app.js -->
     <div class="chart-panes" id="chartPanes"></div>
   </main>
+
+  <aside id="sidebar-rangos" class="hidden">
+    <div class="rangos-head">
+      <span class="rangos-title"><i class="fa-solid fa-calculator"></i> Rango de precios</span>
+      <button id="btnCloseRangos" title="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <div class="rangos-form">
+      <select id="rangoSymbol" title="Activo"></select>
+      <div class="rango-kind">
+        <button class="rango-kind-btn active" data-kind="call">CALL</button>
+        <button class="rango-kind-btn" data-kind="put">PUT</button>
+      </div>
+      <button id="btnCalcRango" class="primary-btn">Calcular y guardar</button>
+    </div>
+
+    <div id="rangoTiming" class="rango-timing"></div>
+    <div id="rangoResult" class="rango-result"></div>
+
+    <div class="rangos-hist-head">
+      <span>Cálculos guardados</span>
+      <button id="btnReloadRangos" title="Actualizar lista"><i class="fa-solid fa-arrows-rotate"></i></button>
+    </div>
+    <div id="rangosHist"></div>
+  </aside>
 
 </div>
 

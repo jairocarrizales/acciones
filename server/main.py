@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from . import db
 from . import marketdata as md
 from . import news
+from . import rangos
 from . import saltos
 from . import targetprice as tp
 from . import trends
@@ -735,6 +736,57 @@ def poll_alarm_events():
     global alarm_events
     events, alarm_events = alarm_events, []
     return events
+
+
+# ---------------- Rango de precios (cadena de opciones) ----------------
+
+class RangoIn(BaseModel):
+    symbol: str
+    kind: str = "call"  # 'call' | 'put'
+
+
+@app.post("/api/rangos/calcular")
+async def calcular_rango(body: RangoIn):
+    """Calcula el rango SIN guardarlo (vista previa)."""
+    if body.kind not in ("call", "put"):
+        raise HTTPException(400, "kind debe ser 'call' o 'put'")
+    try:
+        return await rangos.calculate(body.symbol.strip().upper(), body.kind)
+    except rangos.RangosError as e:
+        raise HTTPException(502, str(e))
+
+
+@app.post("/api/rangos")
+async def guardar_rango(body: RangoIn):
+    """Calcula y guarda el cálculo completo en la base de datos."""
+    if body.kind not in ("call", "put"):
+        raise HTTPException(400, "kind debe ser 'call' o 'put'")
+    try:
+        calc = await rangos.calculate(body.symbol.strip().upper(), body.kind)
+    except rangos.RangosError as e:
+        raise HTTPException(502, str(e))
+    rid = db.add_rango(calc["symbol"], calc["kind"], calc["expiration"], calc["spot"],
+                       calc["direction"], calc["change_pct"], calc)
+    return {"id": rid, **calc}
+
+
+@app.get("/api/rangos")
+def listar_rangos(symbol: str | None = None):
+    return db.get_rangos(symbol)
+
+
+@app.get("/api/rangos/{rid}")
+def ver_rango(rid: int):
+    r = db.get_rango(rid)
+    if not r:
+        raise HTTPException(404, "Cálculo no encontrado")
+    return r
+
+
+@app.delete("/api/rangos/{rid}")
+def borrar_rango(rid: int):
+    db.delete_rango(rid)
+    return {"ok": True}
 
 
 # ---------------- MA config ----------------

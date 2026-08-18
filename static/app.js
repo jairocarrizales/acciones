@@ -2224,6 +2224,151 @@ document.getElementById("btnSaveApiKey").addEventListener("click", async () => {
   toast("API key guardada.");
 });
 
+// ---------------- panel de rango de precios (cadena de opciones) ----------------
+// Método: para cada contrato del vencimiento más cercano, RANGO = strike + prima
+// (call) o strike - prima (put), y el % que ese rango representa frente al precio
+// actual. Cada cálculo se guarda con todos los datos usados para poder auditarlo.
+
+const appEl = document.getElementById("app");
+const rangosPanel = document.getElementById("sidebar-rangos");
+let rangoKind = "call";
+
+function openRangosPanel() {
+  rangosPanel.classList.remove("hidden");
+  appEl.classList.add("with-rangos");
+  document.getElementById("btnRangos").classList.add("active");
+  fillRangoSymbols();
+  loadRangosHist();
+  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
+}
+
+function closeRangosPanel() {
+  rangosPanel.classList.add("hidden");
+  appEl.classList.remove("with-rangos");
+  document.getElementById("btnRangos").classList.remove("active");
+  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
+}
+
+// El desplegable se llena con la watchlist; se preselecciona el símbolo del panel enfocado.
+function fillRangoSymbols() {
+  const sel = document.getElementById("rangoSymbol");
+  const current = sel.value || panes[state.activePane].symbol;
+  const seen = new Set();
+  sel.innerHTML = "";
+  (state.watchlistGroups || []).forEach((g) => g.symbols.forEach((s) => {
+    if (seen.has(s.ticker)) return;
+    seen.add(s.ticker);
+    const o = document.createElement("option");
+    o.value = s.ticker;
+    o.textContent = `${s.ticker} — ${s.name || ""}`.trim();
+    sel.appendChild(o);
+  }));
+  if (seen.has(current)) sel.value = current;
+}
+
+function renderTiming(t) {
+  const el = document.getElementById("rangoTiming");
+  if (!t) { el.innerHTML = ""; return; }
+  const icon = t.quality === "bueno" ? "fa-circle-check" : t.quality === "regular" ? "fa-triangle-exclamation" : "fa-circle-xmark";
+  el.className = `rango-timing ${t.quality}`;
+  el.innerHTML = `
+    <div class="rt-top"><i class="fa-solid ${icon}"></i> ${t.message}</div>
+    <div class="rt-sub">Franja ideal: <b>${t.best_window_cdmx}</b> hora CDMX (${t.best_window_et} NY) · ahora ${t.now_cdmx} CDMX</div>`;
+}
+
+function renderRangoResult(c) {
+  const el = document.getElementById("rangoResult");
+  if (!c) { el.innerHTML = ""; return; }
+  const dirCls = c.direction === "alcista" ? "up" : c.direction === "bajista" ? "down" : "";
+  const rows = c.rows.map((r) => `
+    <tr class="${r.in_the_money ? "itm" : ""}">
+      <td>${r.strike.toFixed(2)}</td>
+      <td>${r.price.toFixed(2)}</td>
+      <td class="strong">${r.range.toFixed(2)}</td>
+      <td class="${r.pct >= 0 ? "up" : "down"}">${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%</td>
+      <td class="dim">${r.volume ?? 0}</td>
+    </tr>`).join("");
+  el.innerHTML = `
+    <div class="rango-meta">
+      <div><b>${c.symbol}</b> · ${c.kind.toUpperCase()} · vence ${c.expiration}</div>
+      <div>Precio actual <b>$${c.spot.toFixed(2)}</b>
+        <span class="${dirCls}">${c.change_pct != null ? (c.change_pct >= 0 ? "+" : "") + c.change_pct.toFixed(2) + "%" : ""}</span>
+        · día <b class="${dirCls}">${c.direction}</b></div>
+      <div class="dim">Calculado ${c.calculated_at_cdmx} CDMX (${c.calculated_at_et} NY)</div>
+    </div>
+    <table class="rango-table">
+      <thead><tr><th>STRIKE</th><th>PRECIO</th><th>RANGO</th><th>%</th><th>VOL</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function loadRangosHist() {
+  const el = document.getElementById("rangosHist");
+  try {
+    const list = await api("/api/rangos");
+    if (!list.length) { el.innerHTML = `<p class="hint">Aún no hay cálculos guardados.</p>`; return; }
+    el.innerHTML = list.map((r) => `
+      <div class="rango-hist-item" data-id="${r.id}">
+        <div class="rh-top">
+          <b>${r.symbol}</b>
+          <span class="rh-kind ${r.kind}">${r.kind.toUpperCase()}</span>
+          <span class="rh-dir ${r.direction === "alcista" ? "up" : r.direction === "bajista" ? "down" : ""}">${r.direction}</span>
+          <button class="rh-del" data-del="${r.id}" title="Eliminar"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="rh-sub">${r.created_at} · vence ${r.expiration} · spot $${r.spot.toFixed(2)}</div>
+      </div>`).join("");
+    el.querySelectorAll(".rango-hist-item").forEach((it) => it.addEventListener("click", async (e) => {
+      if (e.target.closest(".rh-del")) return;
+      try {
+        const full = await api(`/api/rangos/${it.dataset.id}`);
+        renderTiming(full.data.timing);
+        renderRangoResult(full.data);
+      } catch (err) { toast("Error al abrir el cálculo: " + err.message); }
+    }));
+    el.querySelectorAll(".rh-del").forEach((b) => b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await api(`/api/rangos/${b.dataset.del}`, { method: "DELETE" });
+      loadRangosHist();
+    }));
+  } catch (e) {
+    el.innerHTML = `<p class="hint">Error al cargar el histórico: ${e.message}</p>`;
+  }
+}
+
+document.getElementById("btnRangos").addEventListener("click", () => {
+  if (rangosPanel.classList.contains("hidden")) openRangosPanel(); else closeRangosPanel();
+});
+document.getElementById("btnCloseRangos").addEventListener("click", closeRangosPanel);
+document.getElementById("btnReloadRangos").addEventListener("click", loadRangosHist);
+
+document.querySelectorAll(".rango-kind-btn").forEach((b) => b.addEventListener("click", () => {
+  rangoKind = b.dataset.kind;
+  document.querySelectorAll(".rango-kind-btn").forEach((x) => x.classList.toggle("active", x === b));
+}));
+
+document.getElementById("btnCalcRango").addEventListener("click", async () => {
+  const btn = document.getElementById("btnCalcRango");
+  const symbol = document.getElementById("rangoSymbol").value;
+  if (!symbol) { toast("Elige un activo."); return; }
+  btn.disabled = true;
+  btn.textContent = "Calculando...";
+  try {
+    const c = await api("/api/rangos", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, kind: rangoKind }),
+    });
+    renderTiming(c.timing);
+    renderRangoResult(c);
+    loadRangosHist();
+    toast(`Rango de ${c.symbol} (${c.kind.toUpperCase()}) calculado y guardado.`);
+  } catch (e) {
+    toast("Error al calcular: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Calcular y guardar";
+  }
+});
+
 // ---------------- pantalla completa ----------------
 // Usa la API Fullscreen del navegador (misma que F11) para dar toda la pantalla a los
 // gráficos. El icono alterna expandir/contraer y se reenfocan las velas al cambiar de tamaño.
@@ -2262,7 +2407,6 @@ if (btnFullscreen) {
 
 // ---------------- collapsible sidebar ----------------
 
-const appEl = document.getElementById("app");
 const leftSidebar = document.getElementById("sidebar-left");
 const btnCollapseLeft = document.getElementById("btnCollapseLeft");
 
