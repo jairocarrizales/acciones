@@ -86,7 +86,20 @@
   <aside id="sidebar-rangos" class="hidden">
     <div class="rangos-head">
       <span class="rangos-title"><i class="fa-solid fa-calculator"></i> Rango de precios</span>
-      <button id="btnCloseRangos" title="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      <div class="rangos-head-actions">
+        <button id="btnRangoCfg" title="Ajustes del cálculo"><i class="fa-solid fa-gear"></i></button>
+        <button id="btnCloseRangos" title="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+
+    <div id="rangoCfgBox" class="rango-cfg hidden">
+      <label>Precio mínimo del contrato
+        <span class="cfg-row">$<input id="cfgMinPrice" type="number" min="0" step="1" value="20"></span>
+      </label>
+      <label>Cantidad de datos a usar
+        <span class="cfg-row"><input id="cfgCount" type="number" min="1" max="100" step="1" value="8"></span>
+      </label>
+      <button id="btnSaveRangoCfg" class="primary-btn">Guardar ajustes</button>
     </div>
 
     <div class="rangos-form">

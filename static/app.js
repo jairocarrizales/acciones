@@ -2238,6 +2238,7 @@ function openRangosPanel() {
   appEl.classList.add("with-rangos");
   document.getElementById("btnRangos").classList.add("active");
   fillRangoSymbols();
+  loadRangoCfg();
   loadRangosHist();
   requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
 }
@@ -2276,6 +2277,8 @@ function renderTiming(t) {
     <div class="rt-sub">Franja ideal: <b>${t.best_window_cdmx}</b> hora CDMX (${t.best_window_et} NY) · ahora ${t.now_cdmx} CDMX</div>`;
 }
 
+// La tarjeta muestra SOLO el rango óptimo (mínimo y máximo). El detalle con todos
+// los precios usados aparece al hacer clic en ella.
 function renderRangoResult(c) {
   const el = document.getElementById("rangoResult");
   if (!c) { el.innerHTML = ""; return; }
@@ -2288,19 +2291,75 @@ function renderRangoResult(c) {
       <td class="${r.pct >= 0 ? "up" : "down"}">${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%</td>
       <td class="dim">${r.volume ?? 0}</td>
     </tr>`).join("");
+
   el.innerHTML = `
-    <div class="rango-meta">
-      <div><b>${c.symbol}</b> · ${c.kind.toUpperCase()} · vence ${c.expiration}</div>
-      <div>Precio actual <b>$${c.spot.toFixed(2)}</b>
-        <span class="${dirCls}">${c.change_pct != null ? (c.change_pct >= 0 ? "+" : "") + c.change_pct.toFixed(2) + "%" : ""}</span>
-        · día <b class="${dirCls}">${c.direction}</b></div>
-      <div class="dim">Calculado ${c.calculated_at_cdmx} CDMX (${c.calculated_at_et} NY)</div>
+    <div class="rango-card" title="Clic para ver los precios usados">
+      <div class="rc-top">
+        <b class="rc-sym">${c.symbol}</b>
+        <span class="rh-kind ${c.kind}">${c.kind.toUpperCase()}</span>
+        <span class="rc-dir ${dirCls}">${c.direction}</span>
+        <i class="fa-solid fa-chevron-down rc-caret"></i>
+      </div>
+      <div class="rc-label">Rango óptimo de precio</div>
+      <div class="rc-range"><span>$${c.range_min.toFixed(2)}</span><i class="fa-solid fa-arrow-right-long"></i><span>$${c.range_max.toFixed(2)}</span></div>
+      <div class="rc-sub">Precio actual $${c.spot.toFixed(2)} · vence ${c.expiration}</div>
     </div>
-    <table class="rango-table">
-      <thead><tr><th>STRIKE</th><th>PRECIO</th><th>RANGO</th><th>%</th><th>VOL</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+    <div class="rango-detail hidden">
+      <div class="rango-meta">
+        <div>Precio actual <b>$${c.spot.toFixed(2)}</b>
+          <span class="${dirCls}">${c.change_pct != null ? (c.change_pct >= 0 ? "+" : "") + c.change_pct.toFixed(2) + "%" : ""}</span>
+          · día <b class="${dirCls}">${c.direction}</b></div>
+        <div class="dim">${c.count} datos con precio ≥ $${Number(c.min_price).toFixed(0)} · ${c.eligible} elegibles de ${c.available}</div>
+        <div class="dim">Calculado ${c.calculated_at_cdmx} CDMX (${c.calculated_at_et} NY)</div>
+      </div>
+      <table class="rango-table">
+        <thead><tr><th>STRIKE</th><th>PRECIO</th><th>RANGO</th><th>%</th><th>VOL</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  const card = el.querySelector(".rango-card");
+  const detail = el.querySelector(".rango-detail");
+  card.addEventListener("click", () => {
+    detail.classList.toggle("hidden");
+    card.classList.toggle("open", !detail.classList.contains("hidden"));
+  });
 }
+
+// ---- ajustes del cálculo (precio mínimo y cantidad de datos) ----
+
+let rangoCfg = { min_price: 20, count: 8 };
+
+async function loadRangoCfg() {
+  try {
+    rangoCfg = await api("/api/rangos/config");
+    document.getElementById("cfgMinPrice").value = rangoCfg.min_price;
+    document.getElementById("cfgCount").value = rangoCfg.count;
+  } catch (_) {}
+}
+
+document.getElementById("btnRangoCfg").addEventListener("click", () => {
+  document.getElementById("rangoCfgBox").classList.toggle("hidden");
+});
+
+document.getElementById("btnSaveRangoCfg").addEventListener("click", async () => {
+  const min_price = parseFloat(document.getElementById("cfgMinPrice").value);
+  const count = parseInt(document.getElementById("cfgCount").value, 10);
+  if (!(min_price >= 0) || !(count >= 1 && count <= 100)) {
+    toast("Revisa los ajustes: precio mínimo ≥ 0 y cantidad entre 1 y 100.");
+    return;
+  }
+  try {
+    rangoCfg = await api("/api/rangos/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ min_price, count }),
+    });
+    document.getElementById("rangoCfgBox").classList.add("hidden");
+    toast(`Ajustes guardados: mínimo $${min_price}, ${count} datos.`);
+  } catch (e) {
+    toast("Error al guardar ajustes: " + e.message);
+  }
+});
 
 async function loadRangosHist() {
   const el = document.getElementById("rangosHist");

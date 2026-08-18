@@ -91,8 +91,18 @@ def _row(contract, spot, kind):
     }
 
 
-def build_calculation(chain, kind="call"):
-    """Construye el cálculo completo a partir de una cadena de opciones."""
+# Ajustes por defecto del cálculo (configurables desde la tuerca del panel).
+DEFAULT_MIN_PRICE = 20.0   # precio mínimo del contrato en dólares
+DEFAULT_COUNT = 8          # cuántos contratos se usan
+
+
+def build_calculation(chain, kind="call", min_price=DEFAULT_MIN_PRICE, count=DEFAULT_COUNT):
+    """Construye el cálculo a partir de una cadena de opciones.
+
+    Se usan solo los `count` contratos con precio >= `min_price` más cercanos al
+    dinero (los de strike más próximo al precio actual), que son los relevantes;
+    el rango óptimo resulta del menor y mayor de sus rangos.
+    """
     quote = chain.get("quote") or {}
     spot = quote.get("regularMarketPrice")
     if not spot:
@@ -100,9 +110,17 @@ def build_calculation(chain, kind="call"):
 
     options = (chain.get("options") or [{}])[0]
     contracts = options.get("calls" if kind == "call" else "puts") or []
-    rows = [r for r in (_row(c, spot, kind) for c in contracts) if r]
-    if not rows:
+    all_rows = [r for r in (_row(c, spot, kind) for c in contracts) if r]
+    if not all_rows:
         raise RangosError("El vencimiento no tiene contratos con precio")
+
+    # Filtro por precio mínimo y selección de los más cercanos al precio actual.
+    eligible = [r for r in all_rows if r["price"] >= min_price]
+    if not eligible:
+        raise RangosError(
+            f"Ningún contrato con precio ≥ ${min_price:g}. Baja el precio mínimo en ajustes.")
+    eligible.sort(key=lambda r: abs(r["strike"] - spot))
+    rows = eligible[:count]
     rows.sort(key=lambda r: r["strike"])
 
     exp_ts = options.get("expirationDate")
@@ -112,10 +130,22 @@ def build_calculation(chain, kind="call"):
     if change_pct is None and prev_close:
         change_pct = (spot / prev_close - 1) * 100
 
+    # Rango óptimo: del menor al mayor de los rangos calculados.
+    range_values = [r["range"] for r in rows]
+    range_min, range_max = min(range_values), max(range_values)
+
     return {
         "symbol": (quote.get("symbol") or "").upper(),
         "kind": kind,
         "spot": round(spot, 4),
+        "min_price": min_price,
+        "count": count,
+        "range_min": round(range_min, 4),
+        "range_max": round(range_max, 4),
+        "range_min_pct": round((range_min / spot - 1) * 100, 3),
+        "range_max_pct": round((range_max / spot - 1) * 100, 3),
+        "available": len(all_rows),
+        "eligible": len(eligible),
         "previous_close": round(prev_close, 4) if prev_close else None,
         "change_pct": round(change_pct, 3) if change_pct is not None else None,
         "direction": ("alcista" if (change_pct or 0) > 0 else
@@ -173,10 +203,11 @@ def timing_advice(now_et=None):
     }
 
 
-async def calculate(symbol: str, kind: str = "call"):
+async def calculate(symbol: str, kind: str = "call",
+                    min_price: float = DEFAULT_MIN_PRICE, count: int = DEFAULT_COUNT):
     """Cálculo completo (vencimiento más cercano) listo para guardar/mostrar."""
     chain = await fetch_chain(symbol)
-    calc = build_calculation(chain, kind)
+    calc = build_calculation(chain, kind, min_price, count)
     calc["timing"] = timing_advice()
     now_cdmx = datetime.now(CDMX_TZ)
     calc["calculated_at_cdmx"] = now_cdmx.strftime("%Y-%m-%d %H:%M")

@@ -139,6 +139,39 @@ input, select, textarea {
 .rango-timing.malo { background: rgba(239,68,68,0.13); border: 1px solid rgba(239,68,68,0.35); }
 .rango-timing .rt-sub { color: var(--text-dim); margin-top: 4px; }
 
+.rangos-head-actions { display: flex; gap: 4px; }
+.rangos-head-actions button { font-size: 12px; padding: 4px 8px; }
+
+/* ajustes del cálculo */
+.rango-cfg { padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bg-panel-2); }
+.rango-cfg.hidden { display: none; }
+.rango-cfg label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 8px; }
+.rango-cfg .cfg-row { display: flex; align-items: center; gap: 4px; margin-top: 4px; color: var(--text); }
+.rango-cfg input { width: 100%; font-size: 13px; }
+
+/* tarjeta con el rango óptimo (el detalle se despliega al hacer clic) */
+.rango-card {
+  background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px; cursor: pointer; transition: border-color .15s;
+}
+.rango-card:hover { border-color: var(--accent); }
+.rango-card.open .rc-caret { transform: rotate(180deg); }
+.rc-top { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.rc-sym { font-size: 15px; }
+.rc-dir { font-size: 10px; color: var(--text-dim); }
+.rc-dir.up { color: var(--green); } .rc-dir.down { color: var(--red); }
+.rc-caret { margin-left: auto; font-size: 10px; color: var(--text-dim); transition: transform .15s; }
+.rc-label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); }
+.rc-range {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  font-size: 20px; font-weight: 700; padding: 6px 0 4px;
+}
+.rc-range i { font-size: 12px; color: var(--text-dim); }
+.rc-sub { font-size: 11px; color: var(--text-dim); text-align: center; }
+
+.rango-detail { margin-top: 10px; }
+.rango-detail.hidden { display: none; }
+
 .rango-result { padding: 0 12px 12px; }
 .rango-result:empty { display: none; }
 .rango-meta { font-size: 12px; line-height: 1.6; margin-bottom: 8px; }
