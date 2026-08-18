@@ -251,12 +251,18 @@ input, select, textarea {
 .pane-chart-container { flex: 1; position: relative; min-height: 0; }
 .pane-chart-container.drawing-armed { cursor: crosshair; }
 
-/* En 4 paneles la barra se compacta a una sola fila para no robar altura al gráfico */
+/* Con 2 o 4 paneles la barra se compacta a una sola fila para no robar altura al gráfico */
+.chart-panes.layout-2 .pane-toolbar,
 .chart-panes.layout-4 .pane-toolbar { flex-wrap: nowrap; gap: 3px; padding: 4px 6px; overflow: hidden; }
+.chart-panes.layout-2 .pane-toolbar button,
 .chart-panes.layout-4 .pane-toolbar button { padding: 3px 6px; font-size: 11px; }
+.chart-panes.layout-2 .pane-toolbar .ivl-btn,
 .chart-panes.layout-4 .pane-toolbar .ivl-btn { padding: 3px 5px; }
+.chart-panes.layout-2 .pane-toolbar .btn-toggle-dma,
+.chart-panes.layout-2 .pane-toolbar .btn-toggle-ext,
 .chart-panes.layout-4 .pane-toolbar .btn-toggle-dma,
 .chart-panes.layout-4 .pane-toolbar .btn-toggle-ext { font-size: 9px; padding: 3px 4px; }
+.chart-panes.layout-2 .pane-toolbar .spacer,
 .chart-panes.layout-4 .pane-toolbar .spacer { flex: 0 0 4px; }
 
 #btnSplitView.active,
