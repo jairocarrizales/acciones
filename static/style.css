@@ -383,10 +383,10 @@ input, select, textarea {
 .chart-panes.layout-4 .pane-toolbar { flex-wrap: nowrap; gap: 3px; padding: 4px 6px; overflow: hidden; }
 .chart-panes.layout-2 .pane-toolbar button,
 .chart-panes.layout-4 .pane-toolbar button { padding: 3px 6px; font-size: 11px; }
+.chart-panes.layout-2 .pane-toolbar .tool-btn,
+.chart-panes.layout-4 .pane-toolbar .tool-btn { width: 26px; height: 24px; padding: 0; }
 .chart-panes.layout-2 .pane-toolbar .ivl-btn,
 .chart-panes.layout-4 .pane-toolbar .ivl-btn { padding: 3px 5px; }
-.chart-panes.layout-2 .pane-toolbar .btn-toggle-dma,
-.chart-panes.layout-4 .pane-toolbar .btn-toggle-dma { font-size: 9px; padding: 3px 4px; }
 .chart-panes.layout-2 .pane-toolbar .spacer,
 .chart-panes.layout-4 .pane-toolbar .spacer { flex: 0 0 4px; }
 
@@ -396,7 +396,12 @@ input, select, textarea {
 #btnToggleSidebar.active,
 .tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-.btn-toggle-dma { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+/* todos los botones de la barra del panel miden lo mismo (los de icono y el "D1") */
+.pane-toolbar .tool-btn {
+  width: 30px; height: 28px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.btn-toggle-dma { font-size: 11px; font-weight: 700; letter-spacing: 0.3px; }
 
 /* iconos de dibujo en SVG: heredan el color del botón (blancos en modo oscuro) */
 .tool-svg { width: 14px; height: 14px; display: block; color: inherit; }
