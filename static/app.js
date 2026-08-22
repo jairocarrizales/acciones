@@ -216,7 +216,6 @@ function buildPaneDom(letter) {
       <button class="btn-toggle-dma tool-btn" data-pane="${letter}" title="Mostrar/ocultar niveles de MAs diarias (D1) en intradía">D1</button>
       <button class="btn-toggle-bb tool-btn active" data-pane="${letter}" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
       <button class="btn-toggle-stoch tool-btn" data-pane="${letter}" title="Panel inferior: Worden Stochastics 12 %K 3 + Volumen"><i class="fa-solid fa-chart-column"></i></button>
-      <button class="btn-lock-zoom tool-btn" data-pane="${letter}" title="Bloquear zoom y desplazamiento"><i class="fa-solid fa-lock-open"></i></button>
     </div>
     <div class="pane-chart-container" id="chartContainer${letter}">
       <div class="candle-countdown" id="countdown${letter}"></div>
@@ -253,7 +252,6 @@ function createPane(letter, defaultInterval) {
     symbol: state.symbol,
     maSeries: [], maVisible: false, bbSeries: [], bbVisible: true, dailyMaLines: [],
     stochVisible: localStorage.getItem(`stochVisible:${letter}`) === "1",
-    zoomLocked: localStorage.getItem(`zoomLocked:${letter}`) === "1",
     volSeries: null, stochSeries: null, stochLevelSeries: [],
     dmaVisible: localStorage.getItem(`dmaVisible:${letter}`) !== "0",
     extVisible: false, // sesión extendida (pre/post): retirada de la barra por no ser útil en valores poco líquidos
@@ -1076,8 +1074,7 @@ function setDrawMode(pane, mode) {
   if (rbtn) rbtn.classList.toggle("active", mode === "rect");
   // Mientras se traza, se desactiva el paneo/zoom: si no, un clic con el más mínimo
   // movimiento del mouse se interpreta como arrastre de la vista en vez de un clic.
-  const allow = !mode && !pane.zoomLocked;
-  pane.chart.applyOptions({ handleScroll: allow, handleScale: allow });
+  pane.chart.applyOptions({ handleScroll: !mode, handleScale: !mode });
 }
 
 function clearDrawingSeries(pane) {
@@ -1551,30 +1548,6 @@ document.querySelectorAll(".btn-toggle-ma").forEach((btn) => {
     pane.maVisible = !pane.maVisible;
     btn.classList.toggle("active", pane.maVisible);
     pane.maSeries.forEach((s) => s.applyOptions({ visible: pane.maVisible }));
-  });
-});
-
-// Bloqueo de zoom/desplazamiento por panel: fija la vista para que no se mueva sin querer.
-function applyZoomLock(pane) {
-  pane.chart.applyOptions({
-    handleScroll: !pane.zoomLocked,
-    handleScale: !pane.zoomLocked,
-  });
-  const btn = document.querySelector(`.btn-lock-zoom[data-pane="${pane.letter}"]`);
-  if (btn) {
-    btn.classList.toggle("active", pane.zoomLocked);
-    btn.querySelector("i").className = pane.zoomLocked ? "fa-solid fa-lock" : "fa-solid fa-lock-open";
-    btn.title = pane.zoomLocked ? "Desbloquear zoom y desplazamiento" : "Bloquear zoom y desplazamiento";
-  }
-}
-
-document.querySelectorAll(".btn-lock-zoom").forEach((btn) => {
-  const pane = panes[btn.dataset.pane];
-  applyZoomLock(pane);
-  btn.addEventListener("click", () => {
-    pane.zoomLocked = !pane.zoomLocked;
-    localStorage.setItem(`zoomLocked:${pane.letter}`, pane.zoomLocked ? "1" : "0");
-    applyZoomLock(pane);
   });
 });
 
