@@ -395,6 +395,10 @@ input, select, textarea {
 
 .btn-toggle-dma { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
 
+/* iconos de dibujo en SVG: heredan el color del botón (blancos en modo oscuro) */
+.tool-svg { width: 14px; height: 14px; display: block; color: inherit; }
+.tool-btn.active .tool-svg { color: #fff; }
+
 /* grosor de línea para dibujos */
 .btn-draw-width .width-sample { display: block; width: 14px; height: 2px; background: currentColor; border-radius: 1px; }
 .btn-draw-width .width-sample.w1 { height: 1px; }
