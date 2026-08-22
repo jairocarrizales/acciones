@@ -211,6 +211,8 @@ function buildPaneDom(letter) {
       <button class="btn-toggle-dma tool-btn" data-pane="${letter}" title="Mostrar/ocultar niveles de MAs diarias (D1) en intradía">D1</button>
       <button class="btn-toggle-bb tool-btn active" data-pane="${letter}" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
       <button class="btn-toggle-stoch tool-btn" data-pane="${letter}" title="Panel inferior: Worden Stochastics 12 %K 3 + Volumen"><i class="fa-solid fa-chart-column"></i></button>
+      <button class="btn-lock-zoom tool-btn" data-pane="${letter}" title="Bloquear zoom y desplazamiento"><i class="fa-solid fa-lock-open"></i></button>
+      <span class="stoch-val" id="stochVal${letter}"></span>
     </div>
     <div class="pane-chart-container" id="chartContainer${letter}">
       <div class="candle-countdown" id="countdown${letter}"></div>
@@ -247,6 +249,7 @@ function createPane(letter, defaultInterval) {
     symbol: state.symbol,
     maSeries: [], maVisible: false, bbSeries: [], bbVisible: true, dailyMaLines: [],
     stochVisible: localStorage.getItem(`stochVisible:${letter}`) === "1",
+    zoomLocked: localStorage.getItem(`zoomLocked:${letter}`) === "1",
     volSeries: null, stochSeries: null, stochLevelSeries: [],
     dmaVisible: localStorage.getItem(`dmaVisible:${letter}`) !== "0",
     extVisible: false, // sesión extendida (pre/post): retirada de la barra por no ser útil en valores poco líquidos
@@ -456,6 +459,7 @@ function wordenStochastics(candles, period, smooth) {
 const STOCH_PANE = 1; // índice del subpanel en el chart
 
 function clearStochPane(pane) {
+  if (pane.stochMarkers) { try { pane.stochMarkers.setMarkers([]); } catch (_) {} pane.stochMarkers = null; }
   if (pane.volSeries) { try { pane.chart.removeSeries(pane.volSeries); } catch (_) {} pane.volSeries = null; }
   if (pane.stochSeries) { try { pane.chart.removeSeries(pane.stochSeries); } catch (_) {} pane.stochSeries = null; }
   pane.stochLevelSeries.forEach((s) => { try { pane.chart.removeSeries(s); } catch (_) {} });
@@ -464,19 +468,39 @@ function clearStochPane(pane) {
 
 function renderStochPane(pane) {
   clearStochPane(pane);
-  if (!pane.stochVisible || !pane.candles.length) return;
+  if (!pane.stochVisible || !pane.candles.length) {
+    const b = document.getElementById(`stochVal${pane.letter}`);
+    if (b) { b.textContent = ""; b.className = "stoch-val"; }
+    return;
+  }
   const c = pane.candles;
   const times = c.map((k) => k.time);
 
   // Volumen: barras verde/rojo (según cierre vs apertura) en su propia escala oculta,
   // SUPERPUESTAS con el estocástico (como TC2000): ambos ocupan todo el subpanel y las
   // barras crecen desde abajo por detrás de la línea amarilla.
+  // El volumen se expresa en la MISMA escala 0-100 del estocástico, medido contra su
+  // media móvil de 20: 20 en la escala = volumen medio. Así la altura de cada barra es
+  // absoluta y no cambia con el zoom (antes se reescalaba al máximo visible, y la misma
+  // barra cruzaba o no la línea roja según cuántas velas hubiera en pantalla).
+  const volAvgPeriod = 20;
+  const volLevel = c.map((k, i) => {
+    const from = Math.max(0, i - volAvgPeriod + 1);
+    let sum = 0, n = 0;
+    for (let j = from; j <= i; j++) { sum += c[j].volume || 0; n++; }
+    const avg = n ? sum / n : 0;
+    // volumen medio -> nivel 20 (la línea roja); se recorta a 100 para no salirse.
+    return avg > 0 ? Math.min(100, (k.volume || 0) / avg * 20) : 0;
+  });
   const vol = pane.chart.addSeries(LC.HistogramSeries, {
-    priceScaleId: "vol", priceFormat: { type: "volume" },
-    priceLineVisible: false, lastValueVisible: false,
+    priceScaleId: "right", priceLineVisible: false, lastValueVisible: false,
+    autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
   }, STOCH_PANE);
-  vol.setData(c.map((k) => ({ time: k.time, value: k.volume || 0, color: k.close >= k.open ? "rgba(0,255,0,0.55)" : "rgba(255,0,0,0.55)" })));
-  vol.priceScale().applyOptions({ scaleMargins: { top: 0.25, bottom: 0 }, visible: false });
+  vol.setData(c.map((k, i) => ({
+    time: k.time, value: volLevel[i],
+    color: k.close >= k.open ? "rgba(0,255,0,0.55)" : "rgba(255,0,0,0.55)",
+  })));
+  vol.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } });
   pane.volSeries = vol;
 
   // Worden Stochastics 12 %K 3 (amarillo), escala 0-100 fija con niveles 20 y 80.
@@ -504,6 +528,32 @@ function renderStochPane(pane) {
     s.setData([{ time: times[0], value: lvl }, { time: times[times.length - 1], value: lvl }]);
     pane.stochLevelSeries.push(s);
   });
+
+  // Marcadores en los cruces REALES de 20 y 80: el ojo no puede juzgarlo con el zoom,
+  // pero el dato sí es exacto. Flecha arriba al salir de sobreventa (cruce al alza del
+  // 20) y flecha abajo al salir de sobrecompra (cruce a la baja del 80).
+  const marks = [];
+  for (let i = 1; i < k.length; i++) {
+    const prev = k[i - 1], cur = k[i];
+    if (prev == null || cur == null) continue;
+    if (prev <= 20 && cur > 20) {
+      marks.push({ time: times[i], position: "belowBar", color: "#22c55e", shape: "arrowUp", text: "20" });
+    } else if (prev >= 80 && cur < 80) {
+      marks.push({ time: times[i], position: "aboveBar", color: "#ef4444", shape: "arrowDown", text: "80" });
+    }
+  }
+  pane.stochMarkers = LC.createSeriesMarkers(stoch, marks);
+
+  // Valor exacto actual, para no tener que juzgarlo a ojo.
+  const lastVal = [...k].reverse().find((v) => v != null);
+  const badge = document.getElementById(`stochVal${pane.letter}`);
+  if (badge) {
+    if (lastVal == null) { badge.textContent = ""; badge.className = "stoch-val"; }
+    else {
+      badge.textContent = `%K ${lastVal.toFixed(2)}`;
+      badge.className = "stoch-val " + (lastVal <= 20 ? "low" : lastVal >= 80 ? "high" : "mid");
+    }
+  }
 
   // Altura del subpanel: ~28 % del gráfico.
   try {
@@ -968,7 +1018,8 @@ function setDrawMode(pane, mode) {
   if (rbtn) rbtn.classList.toggle("active", mode === "rect");
   // Mientras se traza, se desactiva el paneo/zoom: si no, un clic con el más mínimo
   // movimiento del mouse se interpreta como arrastre de la vista en vez de un clic.
-  pane.chart.applyOptions({ handleScroll: !mode, handleScale: !mode });
+  const allow = !mode && !pane.zoomLocked;
+  pane.chart.applyOptions({ handleScroll: allow, handleScale: allow });
 }
 
 function clearDrawingSeries(pane) {
@@ -1436,6 +1487,30 @@ document.querySelectorAll(".btn-toggle-ma").forEach((btn) => {
     pane.maVisible = !pane.maVisible;
     btn.classList.toggle("active", pane.maVisible);
     pane.maSeries.forEach((s) => s.applyOptions({ visible: pane.maVisible }));
+  });
+});
+
+// Bloqueo de zoom/desplazamiento por panel: fija la vista para que no se mueva sin querer.
+function applyZoomLock(pane) {
+  pane.chart.applyOptions({
+    handleScroll: !pane.zoomLocked,
+    handleScale: !pane.zoomLocked,
+  });
+  const btn = document.querySelector(`.btn-lock-zoom[data-pane="${pane.letter}"]`);
+  if (btn) {
+    btn.classList.toggle("active", pane.zoomLocked);
+    btn.querySelector("i").className = pane.zoomLocked ? "fa-solid fa-lock" : "fa-solid fa-lock-open";
+    btn.title = pane.zoomLocked ? "Desbloquear zoom y desplazamiento" : "Bloquear zoom y desplazamiento";
+  }
+}
+
+document.querySelectorAll(".btn-lock-zoom").forEach((btn) => {
+  const pane = panes[btn.dataset.pane];
+  applyZoomLock(pane);
+  btn.addEventListener("click", () => {
+    pane.zoomLocked = !pane.zoomLocked;
+    localStorage.setItem(`zoomLocked:${pane.letter}`, pane.zoomLocked ? "1" : "0");
+    applyZoomLock(pane);
   });
 });
 
