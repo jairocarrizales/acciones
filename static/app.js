@@ -196,8 +196,9 @@ function buildPaneDom(letter) {
         <button data-interval="1d" class="ivl-btn">D1</button>
       </div>
       <button class="btn-refresh-pane tool-btn" data-pane="${letter}" title="Actualizar gráfico"><i class="fa-solid fa-arrows-rotate"></i></button>
-      <button class="btn-toggle-trend tool-btn" data-pane="${letter}" title="Trazar línea de tendencia"><i class="fa-solid fa-arrow-trend-up"></i></button>
-      <button class="btn-toggle-hray tool-btn" data-pane="${letter}" title="Rayo horizontal (un clic)"><i class="fa-solid fa-arrow-right-long"></i></button>
+      <button class="btn-toggle-trend tool-btn" data-pane="${letter}" title="Línea de tendencia (dos clics)"><i class="fa-solid fa-slash"></i></button>
+      <button class="btn-toggle-hline tool-btn" data-pane="${letter}" title="Línea horizontal con precio (un clic)"><i class="fa-solid fa-minus"></i></button>
+      <button class="btn-toggle-hray tool-btn" data-pane="${letter}" title="Rayo horizontal con precio (un clic)"><i class="fa-solid fa-circle-arrow-right"></i></button>
       <button class="btn-toggle-rect tool-btn" data-pane="${letter}" title="Rectángulo (dos clics)"><i class="fa-solid fa-vector-square"></i></button>
       <button class="btn-auto-channel tool-btn" data-pane="${letter}" title="Canal automático (sobre las velas visibles)"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
       <button class="btn-clear-drawings tool-btn" data-pane="${letter}" title="Borrar todos los dibujos del símbolo"><i class="fa-solid fa-trash"></i></button>
@@ -693,6 +694,27 @@ class RectPrimitive {
 
 // ---- rayo horizontal: desde un punto hacia la derecha, sin fin ----
 
+// Etiqueta con el precio sobre la línea, como en TC2000.
+function drawPriceTag(ctx, x, y, scope, price, color) {
+  const hpr = scope.horizontalPixelRatio, vpr = scope.verticalPixelRatio;
+  const text = price.toFixed(2);
+  ctx.save();
+  ctx.font = `${11 * hpr}px -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+  const w = ctx.measureText(text).width + 8 * hpr;
+  const h = 15 * vpr;
+  const bx = Math.min(Math.max(x, 0), scope.bitmapSize.width - w);
+  const by = Math.max(0, y - h - 3 * vpr); // justo encima de la línea
+  ctx.fillStyle = "rgba(20,25,35,0.85)";
+  ctx.fillRect(bx, by, w, h);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1 * hpr;
+  ctx.strokeRect(bx, by, w, h);
+  ctx.fillStyle = color;
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, bx + 4 * hpr, by + h / 2);
+  ctx.restore();
+}
+
 class HRayPaneRenderer {
   constructor(p, options) { this._p = p; this._options = options; }
   draw(target) {
@@ -700,14 +722,17 @@ class HRayPaneRenderer {
       const p = this._p, o = this._options;
       if (p.x == null || p.y == null) return;
       const ctx = scope.context;
-      const x = p.x * scope.horizontalPixelRatio, y = p.y * scope.verticalPixelRatio;
-      if (x > scope.bitmapSize.width) return;
+      // La línea horizontal completa cruza todo el gráfico; el rayo arranca en su punto.
+      const x = o.full ? 0 : p.x * scope.horizontalPixelRatio;
+      const y = p.y * scope.verticalPixelRatio;
+      if (!o.full && x > scope.bitmapSize.width) return;
       ctx.save();
       ctx.lineWidth = (o.selected ? o.width + 1 : o.width) * scope.horizontalPixelRatio;
       ctx.strokeStyle = o.color;
       ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(scope.bitmapSize.width, y); ctx.stroke();
       ctx.restore();
-      if (o.selected) drawHandle(ctx, x, y, scope, false, o.color);
+      if (o.price != null) drawPriceTag(ctx, x, y, scope, o.price, o.color);
+      if (o.selected) drawHandle(ctx, o.full ? p.x * scope.horizontalPixelRatio : x, y, scope, false, o.color);
     });
   }
 }
@@ -721,7 +746,11 @@ class HRayPaneView {
       y: series.priceToCoordinate(this._source.p1.price),
     };
   }
-  renderer() { return new HRayPaneRenderer(this._ppx, this._source.options); }
+  renderer() {
+    return new HRayPaneRenderer(this._ppx, {
+      ...this._source.options, price: this._source.p1.price,
+    });
+  }
 }
 
 class HRayPrimitive {
@@ -833,6 +862,8 @@ function hitTestDrawings(pane, x, y) {
     let dist = null;
     if (p.__type === "hray") {
       if (x >= x1 - TOL) dist = Math.abs(y - y1);
+    } else if (p.__type === "hline") {
+      dist = Math.abs(y - y1);
     } else if (p.__type === "rect") {
       const x2 = timeToX(pane, p.p2.time), y2 = pixelY(pane, p.p2.price);
       if (x2 == null || y2 == null) continue;
@@ -861,9 +892,10 @@ function hitTestHandle(pane, id, x, y) {
   const R = 10;
   const x1 = timeToX(pane, p.p1.time), y1 = pixelY(pane, p.p1.price);
   if (x1 == null || y1 == null) return null;
-  if (p.__type === "hray") {
+  if (p.__type === "hray" || p.__type === "hline") {
     if (Math.hypot(x - x1, y - y1) < R) return "p1";
-    if (x >= x1 && Math.abs(y - y1) < R - 2) return "move";
+    const enRango = p.__type === "hline" || x >= x1;
+    if (enRango && Math.abs(y - y1) < R - 2) return "move";
     return null;
   }
   const x2 = timeToX(pane, p.p2.time), y2 = pixelY(pane, p.p2.price);
@@ -910,7 +942,7 @@ function startDrag(pane, e, id, mode) {
   const drag = { pane, id, mode, rect, p };
   if (mode === "move") {
     drag.origPix1 = { x: timeToX(pane, p.p1.time), y: pixelY(pane, p.p1.price) };
-    if (p.__type !== "hray") drag.origPix2 = { x: timeToX(pane, p.p2.time), y: pixelY(pane, p.p2.price) };
+    if (p.__type !== "hray" && p.__type !== "hline") drag.origPix2 = { x: timeToX(pane, p.p2.time), y: pixelY(pane, p.p2.price) };
     drag.startX = e.clientX;
     drag.startY = e.clientY;
   }
@@ -925,7 +957,7 @@ function onDragMove(e) {
   const { pane, p } = drag;
   const x = e.clientX - drag.rect.left;
   const y = e.clientY - drag.rect.top;
-  const isRay = p.__type === "hray";
+  const isRay = p.__type === "hray" || p.__type === "hline";
 
   if (drag.mode === "p1" || drag.mode === "p2") {
     const time = clampedTimeFromX(pane, x);
@@ -958,7 +990,7 @@ async function onDragEnd() {
   const rec = arr.find((d) => d.id === drag.id);
   if (rec) {
     const base = { color: drag.p.options.color, width: drag.p.options.width };
-    rec.data = drag.p.__type === "hray"
+    rec.data = (drag.p.__type === "hray" || drag.p.__type === "hline")
       ? { ...rec.data, ...base, p1: drag.p.p1 }
       : { ...rec.data, ...base, p1: drag.p.p1, p2: drag.p.p2 };
     setSymbolDrawings(drag.pane.symbol, arr);
@@ -980,9 +1012,11 @@ function setDrawMode(pane, mode) {
   pane.container.classList.toggle("drawing-armed", !!mode);
   const tbtn = document.querySelector(`.btn-toggle-trend[data-pane="${pane.letter}"]`);
   const hbtn = document.querySelector(`.btn-toggle-hray[data-pane="${pane.letter}"]`);
+  const lbtn = document.querySelector(`.btn-toggle-hline[data-pane="${pane.letter}"]`);
   const rbtn = document.querySelector(`.btn-toggle-rect[data-pane="${pane.letter}"]`);
   if (tbtn) tbtn.classList.toggle("active", mode === "trend");
   if (hbtn) hbtn.classList.toggle("active", mode === "hray");
+  if (lbtn) lbtn.classList.toggle("active", mode === "hline");
   if (rbtn) rbtn.classList.toggle("active", mode === "rect");
   // Mientras se traza, se desactiva el paneo/zoom: si no, un clic con el más mínimo
   // movimiento del mouse se interpreta como arrastre de la vista en vez de un clic.
@@ -999,8 +1033,8 @@ function clearDrawingSeries(pane) {
 function renderDrawing(pane, d) {
   const type = d.type || "trend";
   const opts = { color: d.data.color || getDrawColor(), width: d.data.width || (type === "rect" ? 1 : 2) };
-  const primitive = type === "hray"
-    ? new HRayPrimitive(pane, d.data.p1, opts)
+  const primitive = (type === "hray" || type === "hline")
+    ? new HRayPrimitive(pane, d.data.p1, { ...opts, full: type === "hline" })
     : type === "rect"
       ? new RectPrimitive(pane, d.data.p1, d.data.p2, opts)
       : new TrendLinePrimitive(pane, d.data.p1, d.data.p2, opts);
@@ -1107,6 +1141,8 @@ function setupDrawingTool(pane) {
   btn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "trend" ? null : "trend"));
   const hrayBtn = document.querySelector(`.btn-toggle-hray[data-pane="${pane.letter}"]`);
   hrayBtn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "hray" ? null : "hray"));
+  const hlineBtn = document.querySelector(`.btn-toggle-hline[data-pane="${pane.letter}"]`);
+  hlineBtn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "hline" ? null : "hline"));
   const rectBtn = document.querySelector(`.btn-toggle-rect[data-pane="${pane.letter}"]`);
   rectBtn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "rect" ? null : "rect"));
   document.querySelector(`.btn-auto-channel[data-pane="${pane.letter}"]`).addEventListener("click", () => autoChannel(pane));
@@ -1169,9 +1205,9 @@ function setupDrawingTool(pane) {
     const price = pane.candleSeries.coordinateToPrice(param.point.y);
     if (price === null) return;
 
-    if (pane.drawMode === "hray") {
+    if (pane.drawMode === "hray" || pane.drawMode === "hline") {
       const arr = getSymbolDrawings(pane.symbol);
-      arr.push({ id: nextDrawingId(), type: "hray", data: { p1: { time, price }, color: getDrawColor(), width: getDrawWidth() } });
+      arr.push({ id: nextDrawingId(), type: pane.drawMode, data: { p1: { time, price }, color: getDrawColor(), width: getDrawWidth() } });
       setSymbolDrawings(pane.symbol, arr);
       loadAllDrawings();
       setDrawMode(pane, null);
