@@ -468,33 +468,31 @@ function renderStochPane(pane) {
   const c = pane.candles;
   const times = c.map((k) => k.time);
 
-  // Volumen: barras verde/rojo (según cierre vs apertura), en su propia escala a la derecha
-  // del subpanel, ocupando la mitad inferior para dejar arriba el estocástico.
+  // Volumen: barras verde/rojo (según cierre vs apertura) en su propia escala oculta,
+  // SUPERPUESTAS con el estocástico (como TC2000): ambos ocupan todo el subpanel y las
+  // barras crecen desde abajo por detrás de la línea amarilla.
   const vol = pane.chart.addSeries(LC.HistogramSeries, {
     priceScaleId: "vol", priceFormat: { type: "volume" },
     priceLineVisible: false, lastValueVisible: false,
   }, STOCH_PANE);
-  vol.setData(c.map((k) => ({ time: k.time, value: k.volume || 0, color: k.close >= k.open ? "rgba(0,255,0,0.75)" : "rgba(255,0,0,0.75)" })));
-  vol.priceScale().applyOptions({ scaleMargins: { top: 0.55, bottom: 0 }, visible: false });
+  vol.setData(c.map((k) => ({ time: k.time, value: k.volume || 0, color: k.close >= k.open ? "rgba(0,255,0,0.55)" : "rgba(255,0,0,0.55)" })));
+  vol.priceScale().applyOptions({ scaleMargins: { top: 0.25, bottom: 0 }, visible: false });
   pane.volSeries = vol;
 
   // Worden Stochastics 12 %K 3 (amarillo), escala 0-100 fija con niveles 20 y 80.
   const k = wordenStochastics(c, 12, 3);
-  // El eje derecho del subpanel muestra 0-100 del estocástico; el rango se declara con
-  // margen inferior para que la línea ocupe la mitad superior y el volumen la inferior,
-  // sin que el eje se extienda a valores negativos.
-  const stochScale = () => ({ priceRange: { minValue: 0, maxValue: 100 }, margins: { above: 4, below: 0 } });
+  // El estocástico ocupa TODO el alto del subpanel (0-100), superpuesto al volumen.
+  const stochScale = () => ({ priceRange: { minValue: 0, maxValue: 100 } });
   const stoch = pane.chart.addSeries(LC.LineSeries, {
     color: "#ffff00", lineWidth: 1, priceScaleId: "right",
     priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
     autoscaleInfoProvider: stochScale,
-    // El eje del subpanel solo rotula 0-100 (la parte inferior es del volumen).
-    priceFormat: { type: "custom", minMove: 1, formatter: (v) => (v < -0.5 || v > 100.5 ? "" : Math.round(v).toString()) },
+    priceFormat: { type: "custom", minMove: 1, formatter: (v) => Math.round(v).toString() },
   }, STOCH_PANE);
   const data = [];
   for (let i = 0; i < k.length; i++) if (k[i] != null) data.push({ time: times[i], value: k[i] });
   stoch.setData(data);
-  stoch.priceScale().applyOptions({ scaleMargins: { top: 0.04, bottom: 0.46 } });
+  stoch.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.08 } });
   pane.stochSeries = stoch;
 
   [20, 80].forEach((lvl) => {
