@@ -391,6 +391,9 @@ function applyDailyMaLines(pane) {
       color: ma.color, lineWidth: 1, lineStyle: LC.LineStyle.Dotted,
       visible: pane.dmaVisible, priceLineVisible: false, lastValueVisible: false,
       crosshairMarkerVisible: false,
+      // No estiran la escala: mandan las velas. Si una media diaria queda lejos del
+      // rango del precio, simplemente no se ve (se puede alejar el zoom para buscarla).
+      autoscaleInfoProvider: () => null,
     });
     series.setData(data);
     pane.dailyMaLines.push(series);
