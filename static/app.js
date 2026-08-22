@@ -212,7 +212,6 @@ function buildPaneDom(letter) {
       <button class="btn-toggle-bb tool-btn active" data-pane="${letter}" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
       <button class="btn-toggle-stoch tool-btn" data-pane="${letter}" title="Panel inferior: Worden Stochastics 12 %K 3 + Volumen"><i class="fa-solid fa-chart-column"></i></button>
       <button class="btn-lock-zoom tool-btn" data-pane="${letter}" title="Bloquear zoom y desplazamiento"><i class="fa-solid fa-lock-open"></i></button>
-      <span class="stoch-val" id="stochVal${letter}"></span>
     </div>
     <div class="pane-chart-container" id="chartContainer${letter}">
       <div class="candle-countdown" id="countdown${letter}"></div>
@@ -459,7 +458,6 @@ function wordenStochastics(candles, period, smooth) {
 const STOCH_PANE = 1; // índice del subpanel en el chart
 
 function clearStochPane(pane) {
-  if (pane.stochMarkers) { try { pane.stochMarkers.setMarkers([]); } catch (_) {} pane.stochMarkers = null; }
   if (pane.volSeries) { try { pane.chart.removeSeries(pane.volSeries); } catch (_) {} pane.volSeries = null; }
   if (pane.stochSeries) { try { pane.chart.removeSeries(pane.stochSeries); } catch (_) {} pane.stochSeries = null; }
   pane.stochLevelSeries.forEach((s) => { try { pane.chart.removeSeries(s); } catch (_) {} });
@@ -468,11 +466,7 @@ function clearStochPane(pane) {
 
 function renderStochPane(pane) {
   clearStochPane(pane);
-  if (!pane.stochVisible || !pane.candles.length) {
-    const b = document.getElementById(`stochVal${pane.letter}`);
-    if (b) { b.textContent = ""; b.className = "stoch-val"; }
-    return;
-  }
+  if (!pane.stochVisible || !pane.candles.length) return;
   const c = pane.candles;
   const times = c.map((k) => k.time);
 
@@ -528,32 +522,6 @@ function renderStochPane(pane) {
     s.setData([{ time: times[0], value: lvl }, { time: times[times.length - 1], value: lvl }]);
     pane.stochLevelSeries.push(s);
   });
-
-  // Marcadores en los cruces REALES de 20 y 80: el ojo no puede juzgarlo con el zoom,
-  // pero el dato sí es exacto. Flecha arriba al salir de sobreventa (cruce al alza del
-  // 20) y flecha abajo al salir de sobrecompra (cruce a la baja del 80).
-  const marks = [];
-  for (let i = 1; i < k.length; i++) {
-    const prev = k[i - 1], cur = k[i];
-    if (prev == null || cur == null) continue;
-    if (prev <= 20 && cur > 20) {
-      marks.push({ time: times[i], position: "belowBar", color: "#22c55e", shape: "arrowUp", text: "20" });
-    } else if (prev >= 80 && cur < 80) {
-      marks.push({ time: times[i], position: "aboveBar", color: "#ef4444", shape: "arrowDown", text: "80" });
-    }
-  }
-  pane.stochMarkers = LC.createSeriesMarkers(stoch, marks);
-
-  // Valor exacto actual, para no tener que juzgarlo a ojo.
-  const lastVal = [...k].reverse().find((v) => v != null);
-  const badge = document.getElementById(`stochVal${pane.letter}`);
-  if (badge) {
-    if (lastVal == null) { badge.textContent = ""; badge.className = "stoch-val"; }
-    else {
-      badge.textContent = `%K ${lastVal.toFixed(2)}`;
-      badge.className = "stoch-val " + (lastVal <= 20 ? "low" : lastVal >= 80 ? "high" : "mid");
-    }
-  }
 
   // Altura del subpanel: ~28 % del gráfico.
   try {
