@@ -389,8 +389,8 @@ function applyDailyMaLines(pane) {
 
     const series = pane.chart.addSeries(LC.LineSeries, {
       color: ma.color, lineWidth: 1, lineStyle: LC.LineStyle.Dotted,
-      visible: pane.dmaVisible, priceLineVisible: false, lastValueVisible: pane.dmaVisible,
-      crosshairMarkerVisible: false, title: `D1 ${ma.type}${ma.period}`,
+      visible: pane.dmaVisible, priceLineVisible: false, lastValueVisible: false,
+      crosshairMarkerVisible: false,
     });
     series.setData(data);
     pane.dailyMaLines.push(series);
@@ -1589,7 +1589,7 @@ document.querySelectorAll(".btn-toggle-dma").forEach((btn) => {
     pane.dmaVisible = !pane.dmaVisible;
     localStorage.setItem(`dmaVisible:${pane.letter}`, pane.dmaVisible ? "1" : "0");
     btn.classList.toggle("active", pane.dmaVisible);
-    pane.dailyMaLines.forEach((s) => s.applyOptions({ visible: pane.dmaVisible, lastValueVisible: pane.dmaVisible }));
+    pane.dailyMaLines.forEach((s) => s.applyOptions({ visible: pane.dmaVisible }));
   });
 });
 
