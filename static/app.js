@@ -357,26 +357,43 @@ function renderMAs(pane) {
 
 // Referencia fija del nivel de las MAs de D1 en paneles intradía (M15/1H), con línea
 // punteada para distinguirlas de las MAs nativas de esa temporalidad.
+// Las medias del diario proyectadas sobre la temporalidad menor: cada vela intradía
+// toma el valor que tenía la MA diaria en SU día, de modo que se ve la curva completa
+// (escalonada, un tramo por día) y no solo el nivel actual. Se dibujan punteadas para
+// distinguirlas de las MAs propias de la temporalidad.
 function applyDailyMaLines(pane) {
-  pane.dailyMaLines.forEach((pl) => { try { pane.candleSeries.removePriceLine(pl); } catch (_) {} });
+  pane.dailyMaLines.forEach((s) => { try { pane.chart.removeSeries(s); } catch (_) {} });
   pane.dailyMaLines = [];
-  if (pane.interval === "1d" || pane.interval === "1w" || !pane.dailyCandles.length) return;
+  const intradia = ["m5", "m15", "1h", "4h"].includes(pane.interval);
+  if (!intradia || !pane.dailyCandles.length || !pane.candles.length) return;
 
   const closes = pane.dailyCandles.map((c) => c.close);
+  // Día (clave AAAAMMDD) -> valor de cada MA diaria en ese día.
+  const dayKeys = pane.dailyCandles.map((c) => dayKeyOf(c.time));
+
   pane.maConfig.forEach((ma) => {
     if (!ma.enabled) return;
     const values = ma.type === "EMA" ? ema(closes, ma.period) : sma(closes, ma.period);
-    let last = null;
-    for (let i = values.length - 1; i >= 0; i--) {
-      if (values[i] !== null) { last = values[i]; break; }
+    const porDia = new Map();
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] != null) porDia.set(dayKeys[i], values[i]);
     }
-    if (last == null) return;
-    const pl = pane.candleSeries.createPriceLine({
-      price: last, color: ma.color, lineWidth: 1, lineStyle: LC.LineStyle.Dashed,
-      axisLabelVisible: pane.dmaVisible, lineVisible: pane.dmaVisible,
-      title: `D1 ${ma.type}${ma.period}`,
+    if (!porDia.size) return;
+
+    const data = [];
+    for (const c of pane.candles) {
+      const v = porDia.get(dayKeyOf(c.time));
+      if (v != null) data.push({ time: c.time, value: v });
+    }
+    if (!data.length) return;
+
+    const series = pane.chart.addSeries(LC.LineSeries, {
+      color: ma.color, lineWidth: 1, lineStyle: LC.LineStyle.Dotted,
+      visible: pane.dmaVisible, priceLineVisible: false, lastValueVisible: pane.dmaVisible,
+      crosshairMarkerVisible: false, title: `D1 ${ma.type}${ma.period}`,
     });
-    pane.dailyMaLines.push(pl);
+    series.setData(data);
+    pane.dailyMaLines.push(series);
   });
 }
 
@@ -1572,7 +1589,7 @@ document.querySelectorAll(".btn-toggle-dma").forEach((btn) => {
     pane.dmaVisible = !pane.dmaVisible;
     localStorage.setItem(`dmaVisible:${pane.letter}`, pane.dmaVisible ? "1" : "0");
     btn.classList.toggle("active", pane.dmaVisible);
-    pane.dailyMaLines.forEach((pl) => pl.applyOptions({ lineVisible: pane.dmaVisible, axisLabelVisible: pane.dmaVisible }));
+    pane.dailyMaLines.forEach((s) => s.applyOptions({ visible: pane.dmaVisible, lastValueVisible: pane.dmaVisible }));
   });
 });
 
