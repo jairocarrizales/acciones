@@ -1979,7 +1979,32 @@ function rerenderWatchlist() {
   tree.innerHTML = "";
   groups.forEach((g) => tree.appendChild(renderGroup(g)));
   renderFavoritesTab(groups);
+  renderFavSelect();
 }
+
+// Selector rápido de favoritos en la barra superior: evita abrir la lista lateral.
+function renderFavSelect() {
+  const sel = document.getElementById("favSelect");
+  if (!sel) return;
+  const favs = getLocalFavs();
+  const names = {};
+  (state.watchlistGroups || []).forEach((g) => g.symbols.forEach((s) => { names[s.ticker] = s.name || ""; }));
+  // Se mantiene el orden por earnings, igual que en la pestaña Favoritos.
+  const rows = [];
+  (state.watchlistGroups || []).forEach((g) => g.symbols.forEach((s) => {
+    if (favs.includes(s.ticker) && !rows.some((r) => r.ticker === s.ticker)) rows.push(s);
+  }));
+  const ordered = sortByEarnings(rows);
+  sel.innerHTML = `<option value="">★ Favoritos${ordered.length ? "" : " (ninguno)"}</option>` +
+    ordered.map((s) => `<option value="${s.ticker}">${s.ticker}${s.name ? " — " + escapeHtml(s.name) : ""}</option>`).join("");
+  sel.value = "";
+}
+
+document.getElementById("favSelect").addEventListener("change", (e) => {
+  const t = e.target.value;
+  if (t) selectSymbol(t);
+  e.target.value = "";
+});
 
 function renderFavoritesTab(groups) {
   const favTree = document.getElementById("favoritesTree");

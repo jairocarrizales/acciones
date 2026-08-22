@@ -94,6 +94,9 @@ input, select, textarea {
 .intervals { display: flex; gap: 4px; }
 .ivl-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+/* acceso rápido a favoritos desde la barra superior */
+#favSelect { width: 190px; font-size: 12px; padding: 5px 8px; flex-shrink: 0; }
+
 .top-actions { margin-left: auto; display: flex; gap: 6px; }
 
 #sidebar-left {
