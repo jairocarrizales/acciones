@@ -163,9 +163,59 @@ def _market_open_now() -> bool:
     return 9 * 60 + 30 <= m < 16 * 60
 
 
+# Temporalidades que se construyen agrupando velas de 5 minutos a la HORA EN PUNTO
+# (9:00, 10:00, 11:00...), como hace TC2000. El proveedor las entrega alineadas a la
+# apertura (9:30, 10:30...), lo que produce cuerpos y mechas distintos con los mismos
+# datos. Se agregan aquí para que los patrones coincidan.
+AGREGADAS = {"1h": 1, "4h": 4}
+
+
+def _agrupar_desde_m5(m5, horas):
+    """Agrupa velas de 5 min en velas de N horas alineadas a la hora en punto."""
+    bloques = {}
+    for c in m5:
+        dt = datetime.utcfromtimestamp(c["time"])  # epoch 'naive' = hora de mercado
+        h = (dt.hour // horas) * horas
+        clave = dt.replace(hour=h, minute=0, second=0, microsecond=0)
+        ts = int(clave.replace(tzinfo=timezone.utc).timestamp())
+        b = bloques.get(ts)
+        if b is None:
+            bloques[ts] = {"time": ts, "open": c["open"], "high": c["high"],
+                           "low": c["low"], "close": c["close"], "volume": c.get("volume") or 0}
+        else:
+            b["high"] = max(b["high"], c["high"])
+            b["low"] = min(b["low"], c["low"])
+            b["close"] = c["close"]
+            b["volume"] += c.get("volume") or 0
+    return [bloques[k] for k in sorted(bloques)]
+
+
 async def _ensure_candles(symbol: str, interval: str, refresh: bool = False):
     """Refresca la caché de velas si hace falta y devuelve las velas guardadas.
     Con mercado abierto la vela en curso se refresca con más frecuencia."""
+    # 1H y 4H se realinean a la hora en punto reagrupando desde M5. Como M5 solo cubre
+    # ~2 meses, el histórico anterior se conserva tal cual lo entrega el proveedor
+    # (alineado a la apertura) y se empalma con el tramo reciente ya realineado.
+    if interval in AGREGADAS:
+        base = await _ensure_candles_raw(symbol, interval, refresh)
+        try:
+            m5 = await _ensure_candles_raw(symbol, "m5", refresh)
+        except Exception:
+            return base
+        if not m5:
+            return base
+        recientes = _agrupar_desde_m5(m5, AGREGADAS[interval])
+        if not recientes:
+            return base
+        corte = recientes[0]["time"]
+        return [c for c in base if c["time"] < corte] + recientes
+
+    return await _ensure_candles_raw(symbol, interval, refresh)
+
+
+async def _ensure_candles_raw(symbol: str, interval: str, refresh: bool = False):
+    """Velas tal como las entrega el proveedor (sin realinear)."""
+
     now = int(time.time())
     last_fetch = db.get_fetch_time(symbol, interval)
     max_age = (td.STALENESS if _market_open_now() else td.STALENESS_CLOSED)[interval]
