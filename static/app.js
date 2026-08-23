@@ -1127,6 +1127,24 @@ function loadAllDrawings() {
   Object.values(panes).forEach((p) => loadDrawings(p));
 }
 
+// Editar el precio exacto de una línea horizontal o un rayo: la línea se recoloca
+// al valor tecleado, sin depender de la puntería del arrastre.
+function editDrawingPrice(pane, id) {
+  const arr = getSymbolDrawings(pane.symbol);
+  const rec = arr.find((d) => d.id === id);
+  if (!rec || (rec.type !== "hline" && rec.type !== "hray")) return false;
+  const actual = rec.data.p1.price;
+  const txt = prompt("Precio de la línea:", actual.toFixed(2));
+  if (txt === null) return true;
+  const nuevo = parseFloat(String(txt).replace(",", "."));
+  if (!isFinite(nuevo)) { toast("Precio inválido."); return true; }
+  rec.data.p1 = { ...rec.data.p1, price: nuevo };
+  setSymbolDrawings(pane.symbol, arr);
+  loadAllDrawings();
+  selectDrawing(pane, id);
+  return true;
+}
+
 function recolorDrawing(pane, id, color) {
   const arr = getSymbolDrawings(pane.symbol);
   const rec = arr.find((d) => d.id === id);
@@ -1251,6 +1269,17 @@ function setupDrawingTool(pane) {
     if (pane.selectedDrawingId != null) rewidthDrawing(pane, pane.selectedDrawingId, getDrawWidth());
   });
   refreshWidthBtns();
+
+  // Doble clic sobre una línea horizontal o un rayo: permite teclear su precio exacto.
+  pane.container.addEventListener("dblclick", (e) => {
+    const rect = pane.container.getBoundingClientRect();
+    const hit = hitTestDrawings(pane, e.clientX - rect.left, e.clientY - rect.top);
+    if (!hit) return;
+    if (editDrawingPrice(pane, hit.__drawingId)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
 
   // Fase de captura: se intercepta el mousedown ANTES de que llegue al canvas interno de la
   // librería, para que si cae sobre un manejador de la línea seleccionada, el propio chart
@@ -1633,6 +1662,7 @@ function applyLayout() {
   chartPanesEl.classList.add(`layout-${layoutMode}`);
   btnSplitView.classList.toggle("active", layoutMode !== "1");
   btnSplitView.title = `Diseño: ${layoutMode} panel(es) — clic para cambiar (1 → 2 → 4)`;
+  positionSplitters();
   if (!LAYOUT_PANES[layoutMode].includes(state.activePane)) setActivePane("A");
   requestAnimationFrame(() => visiblePanes().forEach((p) => focusLatest(p)));
   // Paneles recién visibles que aún no tienen datos: se cargan ahora. El enfoque a las
@@ -1642,6 +1672,89 @@ function applyLayout() {
     if (!p.candles.length) loadPaneData(p).then(() => { focusLatest(p); setTimeout(() => focusLatest(p), 400); });
   });
 }
+
+// ---- divisores arrastrables entre paneles ----
+// Permiten agrandar un panel a costa del contiguo, arrastrando la línea que los separa.
+// Las proporciones se guardan y se aplican con variables CSS sobre el grid.
+
+function applySplitVars() {
+  const x = parseFloat(localStorage.getItem("splitX")) || 50;
+  const y = parseFloat(localStorage.getItem("splitY")) || 50;
+  chartPanesEl.style.setProperty("--split-x", `${x}fr`);
+  chartPanesEl.style.setProperty("--split-x2", `${100 - x}fr`);
+  chartPanesEl.style.setProperty("--split-y", `${y}fr`);
+  chartPanesEl.style.setProperty("--split-y2", `${100 - y}fr`);
+}
+
+function positionSplitters() {
+  const vs = document.getElementById("splitterV");
+  const hs = document.getElementById("splitterH");
+  if (!vs || !hs) return;
+  const dos = layoutMode === "2", cuatro = layoutMode === "4";
+  vs.classList.toggle("hidden", !(dos || cuatro));
+  hs.classList.toggle("hidden", !cuatro);
+  const x = parseFloat(localStorage.getItem("splitX")) || 50;
+  const y = parseFloat(localStorage.getItem("splitY")) || 50;
+  vs.style.left = `${x}%`;
+  hs.style.top = `${y}%`;
+}
+
+function startSplitDrag(e, eje) {
+  e.preventDefault();
+  const el = eje === "x" ? document.getElementById("splitterV") : document.getElementById("splitterH");
+  el.classList.add("dragging");
+  document.body.classList.add("splitting");
+  if (eje === "y") document.body.classList.add("row");
+
+  const mover = (ev) => {
+    const r = chartPanesEl.getBoundingClientRect();
+    const pct = eje === "x"
+      ? ((ev.clientX - r.left) / r.width) * 100
+      : ((ev.clientY - r.top) / r.height) * 100;
+    const lim = Math.min(85, Math.max(15, pct)); // no dejar un panel demasiado pequeño
+    localStorage.setItem(eje === "x" ? "splitX" : "splitY", String(lim));
+    applySplitVars();
+    positionSplitters();
+  };
+  const soltar = () => {
+    document.removeEventListener("mousemove", mover);
+    document.removeEventListener("mouseup", soltar);
+    el.classList.remove("dragging");
+    document.body.classList.remove("splitting", "row");
+    // los gráficos cambiaron de ancho: reencuadrar las últimas velas
+    requestAnimationFrame(() => visiblePanes().forEach((p) => { if (p.candles.length) focusLatest(p); }));
+  };
+  document.addEventListener("mousemove", mover);
+  document.addEventListener("mouseup", soltar);
+}
+
+// Doble clic en el divisor: vuelve al reparto 50/50.
+function resetSplit(eje) {
+  localStorage.setItem(eje === "x" ? "splitX" : "splitY", "50");
+  applySplitVars();
+  positionSplitters();
+  requestAnimationFrame(() => visiblePanes().forEach((p) => { if (p.candles.length) focusLatest(p); }));
+}
+
+(function crearSplitters() {
+  const v = document.createElement("div");
+  v.className = "pane-splitter vertical hidden";
+  v.id = "splitterV";
+  v.title = "Arrastra para agrandar un panel (doble clic: 50/50)";
+  v.addEventListener("mousedown", (e) => startSplitDrag(e, "x"));
+  v.addEventListener("dblclick", () => resetSplit("x"));
+
+  const h = document.createElement("div");
+  h.className = "pane-splitter horizontal hidden";
+  h.id = "splitterH";
+  h.title = "Arrastra para agrandar una fila (doble clic: 50/50)";
+  h.addEventListener("mousedown", (e) => startSplitDrag(e, "y"));
+  h.addEventListener("dblclick", () => resetSplit("y"));
+
+  chartPanesEl.appendChild(v);
+  chartPanesEl.appendChild(h);
+  applySplitVars();
+})();
 
 btnSplitView.addEventListener("click", () => {
   layoutMode = LAYOUT_ORDER[(LAYOUT_ORDER.indexOf(layoutMode) + 1) % LAYOUT_ORDER.length];

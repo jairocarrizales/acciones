@@ -352,10 +352,22 @@ input, select, textarea {
 .chart-panes { flex: 1; display: grid; min-height: 0; min-width: 0; grid-template-columns: 1fr; grid-template-rows: 1fr; }
 .chart-pane { display: none; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .chart-panes.layout-1 #paneA { display: flex; }
-.chart-panes.layout-2 { grid-template-columns: 1fr 1fr; }
+.chart-panes.layout-2 { grid-template-columns: var(--split-x, 1fr) var(--split-x2, 1fr); }
 .chart-panes.layout-2 #paneA, .chart-panes.layout-2 #paneB { display: flex; }
-.chart-panes.layout-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.chart-panes.layout-4 {
+  grid-template-columns: var(--split-x, 1fr) var(--split-x2, 1fr);
+  grid-template-rows: var(--split-y, 1fr) var(--split-y2, 1fr);
+}
 .chart-panes.layout-4 .chart-pane { display: flex; }
+/* divisor arrastrable entre paneles: permite agrandar uno a costa del otro */
+.pane-splitter { position: absolute; z-index: 30; background: transparent; }
+.pane-splitter:hover, .pane-splitter.dragging { background: rgba(59,130,246,0.45); }
+.pane-splitter.vertical { top: 0; bottom: 0; width: 7px; margin-left: -3px; cursor: col-resize; }
+.pane-splitter.horizontal { left: 0; right: 0; height: 7px; margin-top: -3px; cursor: row-resize; }
+.chart-panes { position: relative; }
+body.splitting { cursor: col-resize; user-select: none; }
+body.splitting.row { cursor: row-resize; }
+
 .chart-pane.focused { outline: 1px solid rgba(59,130,246,0.55); outline-offset: -1px; }
 
 .pane-symbol-label { font-weight: 700; font-size: 12px; flex-shrink: 0; }
