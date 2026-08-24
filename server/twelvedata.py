@@ -6,14 +6,14 @@ import httpx
 
 BASE = "https://api.twelvedata.com"
 
-INTERVAL_MAP = {"m5": "5min", "m15": "15min", "1h": "1h", "4h": "4h", "1d": "1day", "1w": "1week"}
+INTERVAL_MAP = {"m1": "1min", "m2": "1min", "m5": "5min", "m15": "15min", "1h": "1h", "4h": "4h", "1d": "1day", "1w": "1week"}
 
 # Segundos de antigüedad máxima de la caché antes de volver a pedir a la API
 # Con mercado abierto la vela en curso se refresca a este ritmo (el gráfico consulta
 # solo; con ~800 peticiones/día en el plan gratuito, 60 s en M15 son ~390 peticiones
 # por sesión para UN panel activo — sostenible). Fuera de horario, cada hora basta.
-STALENESS = {"m5": 45, "m15": 60, "1h": 120, "4h": 300, "1d": 300, "1w": 900}
-STALENESS_CLOSED = {"m5": 3600, "m15": 3600, "1h": 3600, "4h": 3600, "1d": 3600, "1w": 7200}
+STALENESS = {"m1": 30, "m2": 30, "m5": 45, "m15": 60, "1h": 120, "4h": 300, "1d": 300, "1w": 900}
+STALENESS_CLOSED = {"m1": 3600, "m2": 3600, "m5": 3600, "m15": 3600, "1h": 3600, "4h": 3600, "1d": 3600, "1w": 7200}
 
 
 class TwelveDataError(Exception):

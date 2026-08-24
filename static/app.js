@@ -179,6 +179,7 @@ function buildPaneDom(letter) {
     <div class="pane-toolbar">
       <span class="pane-symbol-label" data-pane="${letter}">—</span>
       <div class="intervals" data-pane="${letter}">
+        <button data-interval="m2" class="ivl-btn">M2</button>
         <button data-interval="m5" class="ivl-btn">M5</button>
         <button data-interval="m15" class="ivl-btn active">M15</button>
         <button data-interval="1h" class="ivl-btn">1H</button>
@@ -364,7 +365,7 @@ function renderMAs(pane) {
 function applyDailyMaLines(pane) {
   pane.dailyMaLines.forEach((s) => { try { pane.chart.removeSeries(s); } catch (_) {} });
   pane.dailyMaLines = [];
-  const intradia = ["m5", "m15", "1h", "4h"].includes(pane.interval);
+  const intradia = ["m2", "m5", "m15", "1h", "4h"].includes(pane.interval);
   if (!intradia || !pane.dailyCandles.length || !pane.candles.length) return;
 
   const closes = pane.dailyCandles.map((c) => c.close);
@@ -1470,7 +1471,7 @@ async function loadCandles(pane, forceRefresh) {
 // gráfico SIN tocar el zoom ni la posición: solo se refrescan las velas nuevas o la
 // que se está formando, como hace TC2000. Antes el gráfico era una foto estática hasta
 // que se cambiaba de símbolo o se pulsaba refrescar.
-const LIVE_REFRESH_MS = { m5: 20000, m15: 30000, "1h": 60000, "4h": 120000, "1d": 120000, "1w": 300000 };
+const LIVE_REFRESH_MS = { m2: 15000, m5: 20000, m15: 30000, "1h": 60000, "4h": 120000, "1d": 120000, "1w": 300000 };
 
 function marketOpenNowNY() {
   const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -1782,7 +1783,7 @@ btnSplitView.addEventListener("click", () => {
 
 // ---------------- cuenta atrás de la vela en curso ----------------
 
-const INTERVAL_SECONDS = { m5: 300, m15: 900, "1h": 3600, "4h": 14400 };
+const INTERVAL_SECONDS = { m2: 120, m5: 300, m15: 900, "1h": 3600, "4h": 14400 };
 
 function updateCountdowns() {
   // Hora del mercado (Nueva York), con horario de verano correcto.

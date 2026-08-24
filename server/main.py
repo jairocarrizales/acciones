@@ -168,6 +168,27 @@ def _market_open_now() -> bool:
 # apertura (9:30, 10:30...), lo que produce cuerpos y mechas distintos con los mismos
 # datos. Se agregan aquí para que los patrones coincidan.
 AGREGADAS = {"1h": 1, "4h": 4}
+AGREGADAS_MIN = {"m2": 2}  # minutos por vela, agrupados desde M1
+
+
+def _agrupar_minutos(velas, minutos):
+    """Agrupa velas de 1 min en velas de N minutos alineadas a la hora en punto."""
+    bloques = {}
+    for c in velas:
+        dt = datetime.utcfromtimestamp(c["time"])
+        m = (dt.minute // minutos) * minutos
+        clave = dt.replace(minute=m, second=0, microsecond=0)
+        ts = int(clave.replace(tzinfo=timezone.utc).timestamp())
+        b = bloques.get(ts)
+        if b is None:
+            bloques[ts] = {"time": ts, "open": c["open"], "high": c["high"],
+                           "low": c["low"], "close": c["close"], "volume": c.get("volume") or 0}
+        else:
+            b["high"] = max(b["high"], c["high"])
+            b["low"] = min(b["low"], c["low"])
+            b["close"] = c["close"]
+            b["volume"] += c.get("volume") or 0
+    return [bloques[k] for k in sorted(bloques)]
 
 
 def _agrupar_desde_m5(m5, horas):
@@ -196,6 +217,10 @@ async def _ensure_candles(symbol: str, interval: str, refresh: bool = False):
     # 1H y 4H se realinean a la hora en punto reagrupando desde M5. Como M5 solo cubre
     # ~2 meses, el histórico anterior se conserva tal cual lo entrega el proveedor
     # (alineado a la apertura) y se empalma con el tramo reciente ya realineado.
+    if interval in AGREGADAS_MIN:
+        m1 = await _ensure_candles_raw(symbol, "m1", refresh)
+        return _agrupar_minutos(m1, AGREGADAS_MIN[interval])
+
     if interval in AGREGADAS:
         base = await _ensure_candles_raw(symbol, interval, refresh)
         try:

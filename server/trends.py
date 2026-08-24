@@ -18,7 +18,7 @@ MA_PAIRS = [(20, 40), (40, 100), (100, 200)]
 
 MARKET_TZ = ZoneInfo("America/New_York")
 MARKET_CLOSE_HOUR = 16  # 16:00 ET, cierre de la sesión regular de acciones/ETFs de EE. UU.
-INTRADAY_SECONDS = {"m5": 300, "m15": 900, "1h": 3600, "4h": 14400}
+INTRADAY_SECONDS = {"m2": 120, "m5": 300, "m15": 900, "1h": 3600, "4h": 14400}
 
 
 def _last_closed_index(candles, interval):
