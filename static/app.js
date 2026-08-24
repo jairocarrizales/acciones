@@ -264,6 +264,15 @@ function createPane(letter, defaultInterval) {
     drawMode: false, pendingPoint: null, previewPrimitive: null,
   };
 
+  // Al cambiar el zoom o desplazarse, las medias diarias se recortan al nuevo rango
+  // visible de las velas (con anti-rebote para no recalcular en cada píxel).
+  let redibujoDma = null;
+  chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+    if (!pane.dmaVisible || !pane.dailyMaLines.length) return;
+    clearTimeout(redibujoDma);
+    redibujoDma = setTimeout(() => applyDailyMaLines(pane), 180);
+  });
+
   // Clic en cualquier parte del panel lo convierte en el panel enfocado (el que
   // recibe los cambios de símbolo desde la lista de seguimiento).
   paneDiv.addEventListener("mousedown", () => {
@@ -372,6 +381,22 @@ function applyDailyMaLines(pane) {
   // Día (clave AAAAMMDD) -> valor de cada MA diaria en ese día.
   const dayKeys = pane.dailyCandles.map((c) => dayKeyOf(c.time));
 
+  // Límites del recorte: el rango de las velas que se están viendo, con un pequeño
+  // margen para que las medias fuera de rango queden justo en el borde.
+  const vr = pane.chart.timeScale().getVisibleLogicalRange();
+  const desde = vr ? Math.max(0, Math.floor(vr.from)) : 0;
+  const hasta = vr ? Math.min(pane.candles.length - 1, Math.ceil(vr.to)) : pane.candles.length - 1;
+  let vmin = Infinity, vmax = -Infinity;
+  for (let i = desde; i <= hasta; i++) {
+    const c = pane.candles[i];
+    if (!c) continue;
+    if (c.low < vmin) vmin = c.low;
+    if (c.high > vmax) vmax = c.high;
+  }
+  if (!isFinite(vmin) || !isFinite(vmax)) { vmin = 0; vmax = Infinity; }
+  const margen = (vmax - vmin) * 0.02 || 0;
+  const suelo = vmin - margen, techo = vmax + margen;
+
   pane.maConfig.forEach((ma) => {
     if (!ma.enabled) return;
     const values = ma.type === "EMA" ? ema(closes, ma.period) : sma(closes, ma.period);
@@ -381,10 +406,12 @@ function applyDailyMaLines(pane) {
     }
     if (!porDia.size) return;
 
+    // Se recortan al rango de las velas visibles: así una media diaria lejana se ve
+    // pegada al borde en vez de estirar la escala y aplastar las velas.
     const data = [];
     for (const c of pane.candles) {
       const v = porDia.get(dayKeyOf(c.time));
-      if (v != null) data.push({ time: c.time, value: v });
+      if (v != null) data.push({ time: c.time, value: Math.min(techo, Math.max(suelo, v)) });
     }
     if (!data.length) return;
 
