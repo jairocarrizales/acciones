@@ -5,7 +5,7 @@
 const state = {
   symbol: "",       // símbolo del panel enfocado (se resuelve al cargar la watchlist)
   activePane: "A",  // panel que recibe los cambios de símbolo de la watchlist
-  theme: localStorage.getItem("theme") || "dark",
+  theme: "dark", // la app es solo modo oscuro
   maConfig: [],
   maScope: "global",
   alarms: [],
@@ -24,11 +24,6 @@ function formatShortDate(dateStr) {
 }
 
 document.documentElement.setAttribute("data-theme", state.theme);
-
-function updateThemeIcon() {
-  const icon = document.getElementById("themeIcon");
-  icon.className = "fa-solid " + (state.theme === "dark" ? "fa-moon" : "fa-sun");
-}
 
 // ---------------- helpers ----------------
 
@@ -84,13 +79,6 @@ function notifyBrowser(title, body) {
 
 // ---------------- theme ----------------
 
-document.getElementById("btnTheme").addEventListener("click", () => {
-  state.theme = state.theme === "dark" ? "light" : "dark";
-  document.documentElement.setAttribute("data-theme", state.theme);
-  localStorage.setItem("theme", state.theme);
-  updateThemeIcon();
-  applyChartTheme();
-});
 
 // ---------------- chart setup (dos paneles independientes) ----------------
 
@@ -247,8 +235,20 @@ function createPane(letter, defaultInterval) {
 
   const earningsMarkersPrimitive = LC.createSeriesMarkers(candleSeries, []);
 
+  // Marca de agua con el nombre del activo, tenue en blanco, como TC2000.
+  let watermark = null;
+  try {
+    watermark = LC.createTextWatermark(chart.panes()[0], {
+      horzAlign: "center", vertAlign: "center",
+      lines: [
+        { text: "", color: "rgba(255,255,255,0.10)", fontSize: 56, fontStyle: "bold" },
+        { text: "", color: "rgba(255,255,255,0.07)", fontSize: 20 },
+      ],
+    });
+  } catch (_) {}
+
   const pane = {
-    letter, container, chart, candleSeries, earningsMarkersPrimitive,
+    letter, container, chart, candleSeries, earningsMarkersPrimitive, watermark,
     symbol: state.symbol,
     maSeries: [], maVisible: false, bbSeries: [], bbVisible: true, dailyMaLines: [],
     stochVisible: localStorage.getItem(`stochVisible:${letter}`) === "1",
@@ -289,7 +289,7 @@ function setActivePane(letter) {
 }
 
 function applyChartTheme() {
-  const dark = state.theme === "dark";
+  const dark = true;
   const opts = {
     layout: { background: { color: "transparent" }, textColor: dark ? "#8b93a1" : "#475066" },
     grid: {
@@ -1412,7 +1412,7 @@ class ExtSessionPrimitive {
       const from = Math.max(0, Math.floor(vr.from)), to = Math.min(pane.candles.length - 1, Math.ceil(vr.to));
       const ctx = scope.context;
       ctx.save();
-      ctx.fillStyle = state.theme === "dark" ? "rgba(140,150,170,0.07)" : "rgba(60,70,90,0.07)";
+      ctx.fillStyle = "rgba(140,150,170,0.07)";
       let runStart = null;
       const flush = (endIdx) => {
         if (runStart == null) return;
@@ -1551,10 +1551,28 @@ function renderPrice(price, prev) {
   changeEl.className = "change " + (diff >= 0 ? "up" : "down");
 }
 
+// Marca de agua: ticker grande y nombre de la empresa debajo, como TC2000.
+function updateWatermark(pane) {
+  if (!pane.watermark) return;
+  let nombre = "";
+  (state.watchlistGroups || []).forEach((g) => g.symbols.forEach((sy) => {
+    if (sy.ticker === pane.symbol && sy.name) nombre = sy.name;
+  }));
+  try {
+    pane.watermark.applyOptions({
+      lines: [
+        { text: pane.symbol, color: "rgba(255,255,255,0.10)", fontSize: 56, fontStyle: "bold" },
+        { text: nombre, color: "rgba(255,255,255,0.07)", fontSize: 20 },
+      ],
+    });
+  } catch (_) {}
+}
+
 // Carga todos los datos de un panel para su símbolo actual.
 async function loadPaneData(pane) {
   const lbl = document.querySelector(`.pane-symbol-label[data-pane="${pane.letter}"]`);
   if (lbl) lbl.textContent = pane.symbol;
+  updateWatermark(pane);
   await Promise.all([
     loadCandles(pane), loadMAConfig(pane), loadAlarms(pane), loadEarnings(pane),
     loadTargetPrice(pane), loadDailyReference(pane), loadPrevClose(pane),
@@ -1840,7 +1858,7 @@ class SessionMarksPrimitive {
       const ctx = scope.context;
       const hpr = scope.horizontalPixelRatio, vpr = scope.verticalPixelRatio;
       const bs = (ts.options().barSpacing || 6) * hpr;
-      const dark = state.theme === "dark";
+      const dark = true;
       ctx.save();
 
       // 1) separadores verticales al cambiar de día
@@ -2781,7 +2799,6 @@ setLeftCollapsed(localStorage.getItem("leftCollapsed") === "1");
 // ---------------- init ----------------
 
 (async function init() {
-  updateThemeIcon();
   if ("Notification" in window && Notification.permission === "default") {
     Notification.requestPermission();
   }
