@@ -30,6 +30,8 @@
       <option value="">★ Favoritos</option>
     </select>
 
+    <div id="fedBox" class="fed-box hidden"></div>
+
     <div class="top-actions">
       <button id="btnToggleSidebar" title="Mostrar/ocultar la lista de seguimiento"><i class="fa-solid fa-bars"></i></button>
       <button id="btnSplitView" title="Diseño de paneles: 1 / 2 / 4"><i class="fa-solid fa-table-columns"></i></button>
@@ -161,6 +163,16 @@
     <div class="modal-actions">
       <button id="btnCloseSettings">Cerrar</button>
       <button id="btnSaveApiKey" class="primary-btn">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="avisosModal" class="modal hidden">
+  <div class="modal-box">
+    <h3><i class="fa-solid fa-bell"></i> Cambios de precio objetivo</h3>
+    <div id="avisosBody"></div>
+    <div class="modal-actions">
+      <button id="btnCloseAvisos" class="primary-btn">Entendido</button>
     </div>
   </div>
 </div>

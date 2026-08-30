@@ -2292,16 +2292,20 @@ function renderFavoritesTab(groups) {
 
 // Ordena por fecha del próximo reporte de ganancias (más próximo primero); los
 // símbolos sin fecha (ETFs, materias primas) quedan al final, en su orden original.
+// Los que reportan pronto se anclan arriba, ordenados por fecha; el resto conserva
+// el orden guardado, que es el que el usuario fija arrastrando.
 function sortByEarnings(symbols) {
-  return [...symbols].sort((a, b) => {
-    const da = state.nextEarningsMap[a.ticker]?.date;
-    const db = state.nextEarningsMap[b.ticker]?.date;
-    if (da && db) return da < db ? -1 : da > db ? 1 : 0;
-    if (da) return -1;
-    if (db) return 1;
-    return 0;
+  const conFecha = symbols.filter((s) => state.nextEarningsMap[s.ticker]?.date);
+  const resto = symbols.filter((s) => !state.nextEarningsMap[s.ticker]?.date);
+  conFecha.sort((a, b) => {
+    const da = state.nextEarningsMap[a.ticker].date, db = state.nextEarningsMap[b.ticker].date;
+    return da < db ? -1 : da > db ? 1 : 0;
   });
+  return [...conFecha, ...resto];
 }
+
+/** ¿Está anclado arriba por earnings? Esos no se reordenan a mano. */
+function anclado(ticker) { return !!state.nextEarningsMap[ticker]?.date; }
 
 function renderGroup(g) {
   const div = document.createElement("div");
@@ -2353,13 +2357,15 @@ function renderGroup(g) {
     e.preventDefault();
     symsEl.classList.remove("drag-over");
     const sid = e.dataTransfer.getData("text/symbol-id");
-    if (sid) {
-      await api(`/api/watchlist/symbols/${sid}/move`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ group_id: g.id }),
-      });
-      loadWatchlist();
-    }
+    if (!sid) return;
+    // Se suelta delante del símbolo bajo el cursor; si cae en el hueco final, va al fondo.
+    const sobre = e.target.closest(".wl-symbol");
+    const before = sobre && sobre.dataset.symbolId !== sid ? Number(sobre.dataset.symbolId) : null;
+    await api(`/api/watchlist/symbols/${sid}/move`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ group_id: g.id, before_id: before }),
+    });
+    loadWatchlist();
   });
 
   const showPremarket = /etf|materia/i.test(g.name);
@@ -2369,8 +2375,11 @@ function renderGroup(g) {
 
 function renderSymbol(s, showPremarket) {
   const el = document.createElement("div");
-  el.className = "wl-symbol" + (s.ticker === state.symbol ? " active" : "");
+  el.className = "wl-symbol" + (s.ticker === state.symbol ? " active" : "")
+    + (anclado(s.ticker) ? " anclado" : "");
   el.dataset.ticker = s.ticker;
+  el.dataset.symbolId = s.id;
+  // los anclados por earnings mantienen su sitio: se arrastran solo entre grupos
   el.draggable = true;
   const next = state.nextEarningsMap[s.ticker];
   const statusLabel = next ? (STATUS_LABELS[next.status] || next.status) : "";
@@ -2483,7 +2492,10 @@ function renderSearchResults(results) {
         });
         groupId = r.id;
       } else {
-        groupId = groups[0].id;
+        // Va al grupo del activo que se está viendo, para que buscar desde dentro de
+        // una carpeta lo añada ahí y no siempre en la primera.
+        const actual = groups.find((g) => g.symbols.some((s) => s.ticker === state.symbol));
+        groupId = (actual || groups[0]).id;
       }
       await api("/api/watchlist/symbols", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -2642,6 +2654,60 @@ const appEl = document.getElementById("app");
 // Mapa del mercado (Finviz). Su cabecera manda X-Frame-Options: SAMEORIGIN, así que
 // no puede incrustarse en el panel; se abre en otra pestaña, que además deja el mapa
 // a pantalla completa y los gráficos intactos al volver.
+// ---------------- avisos de inicio y próxima reunión de la Fed ----------------
+
+/** Barra roja de la barra superior con la próxima decisión de tipos del FOMC. */
+async function cargarFed() {
+  const box = document.getElementById("fedBox");
+  try {
+    const r = await api("/api/fomc");
+    if (!r || !r.date) return;
+    const f = new Date(r.date + "T12:00:00");
+    const txt = f.toLocaleDateString("es-MX", { day: "numeric", month: "long" });
+    const cuando = r.dias === 0 ? "hoy" : r.dias === 1 ? "mañana" : `en ${r.dias} días`;
+    box.innerHTML = `<i class="fa-solid fa-landmark"></i> <b>FED</b> ${txt} · ${cuando}`;
+    box.title = `Próxima decisión de tipos del FOMC: ${r.date}`;
+    // se enciende cuando la reunión está encima
+    box.classList.toggle("inminente", r.dias <= 3);
+    box.classList.remove("hidden");
+  } catch (_) { /* sin conexión: la barra simplemente no aparece */ }
+}
+
+/** Modal de bienvenida con los precios objetivo que cambiaron hace poco. */
+async function mostrarAvisos() {
+  try {
+    const r = await api("/api/avisos");
+    const filas = r.targets || [];
+    if (!filas.length) return;
+    // una vez al día basta: no reaparece al recargar la página
+    const hoy = new Date().toLocaleDateString("en-CA");
+    if (localStorage.getItem("avisosVistos") === hoy) return;
+
+    document.getElementById("avisosBody").innerHTML = filas.map((t) => {
+      const sube = t.anterior != null && t.valor > t.anterior;
+      const flecha = t.anterior == null ? "" :
+        `<span class="aviso-delta ${sube ? "up" : "down"}">
+           $${t.anterior.toFixed(2)} <i class="fa-solid fa-arrow-right"></i> $${t.valor.toFixed(2)}</span>`;
+      return `<div class="aviso-row" data-ticker="${t.symbol}">
+          <b>${t.symbol}</b> ${flecha}
+          <span class="aviso-fecha">${t.fecha}</span>
+        </div>`;
+    }).join("");
+
+    const modal = document.getElementById("avisosModal");
+    modal.classList.remove("hidden");
+    modal.querySelectorAll(".aviso-row").forEach((row) =>
+      row.addEventListener("click", () => {
+        selectSymbol(row.dataset.ticker);
+        modal.classList.add("hidden");
+      }));
+    document.getElementById("btnCloseAvisos").addEventListener("click", () => {
+      modal.classList.add("hidden");
+      localStorage.setItem("avisosVistos", hoy);
+    });
+  } catch (_) { /* los avisos no son críticos */ }
+}
+
 const FINVIZ_MAPA = "https://finviz.com/map";
 const btnMapa = document.getElementById("btnMapa");
 const mapaMenu = document.getElementById("mapaMenu");
@@ -3050,6 +3116,8 @@ setLeftCollapsed(localStorage.getItem("leftCollapsed") === "1");
   pollAlarmEvents();
   loadTrendScan();
   pollSaltos();
+  cargarFed();
+  mostrarAvisos();
   liveTick(); // vela en curso en vivo con el mercado abierto
 })();
 

@@ -16,6 +16,7 @@ from . import news
 from . import rangos
 from . import saltos
 from . import targetprice as tp
+from . import fomc
 from . import toques as tq
 from . import trends
 from . import twelvedata as td
@@ -125,11 +126,16 @@ def remove_symbol(sid: int):
 
 class MoveSymbolIn(BaseModel):
     group_id: int
+    before_id: int | None = None  # reordenar dentro del grupo, delante de este símbolo
 
 
 @app.put("/api/watchlist/symbols/{sid}/move")
 def move_symbol(sid: int, body: MoveSymbolIn):
-    db.move_symbol(sid, body.group_id)
+    # con before_id se reordena dentro del grupo; sin él, va al final
+    if body.before_id is not None:
+        db.reorder_symbol(sid, body.group_id, body.before_id)
+    else:
+        db.move_symbol(sid, body.group_id)
     return {"ok": True}
 
 
@@ -676,6 +682,76 @@ async def get_news(symbol: str, refresh: bool = False):
     return items
 
 
+# Histórico del precio objetivo por símbolo, para detectar cambios entre sesiones.
+TARGET_HIST_KEY = "target_hist"
+AVISO_DIAS = 14  # antigüedad máxima de un cambio para seguir avisando
+
+
+def _target_hist() -> dict:
+    try:
+        return json.loads(db.get_setting(TARGET_HIST_KEY) or "{}")
+    except Exception:
+        return {}
+
+
+def _guardar_target(symbol: str, data: dict | None):
+    """Anota el objetivo actual y, si cambió, cuándo y desde qué valor."""
+    if not data or data.get("average") is None:
+        return
+    hist = _target_hist()
+    previo = hist.get(symbol)
+    nuevo = round(float(data["average"]), 2)
+    hoy = datetime.now(saltos.MARKET_TZ).date().isoformat()
+    if previo and previo.get("valor") is not None and abs(previo["valor"] - nuevo) > 0.005:
+        hist[symbol] = {"valor": nuevo, "anterior": previo["valor"],
+                        "cambio": hoy, "updated": data.get("updated")}
+    elif not previo:
+        hist[symbol] = {"valor": nuevo, "anterior": None, "cambio": None,
+                        "updated": data.get("updated")}
+    else:
+        return  # sin cambios: no se reescribe
+    db.set_setting(TARGET_HIST_KEY, json.dumps(hist))
+
+
+@app.get("/api/avisos")
+async def avisos_inicio():
+    """Avisos para el modal de bienvenida: cambios recientes de precio objetivo."""
+    hist = _target_hist()
+    tickers = _watchlist_tickers()
+    # se refrescan los objetivos para detectar cambios desde la última sesión
+    for t in tickers:
+        try:
+            cached = _target_cache.get(t)
+            if cached and (time.time() - cached[0]) < TARGET_CACHE_TTL:
+                data = cached[1]
+            else:
+                data = await tp.fetch_target_price(t)
+                _target_cache[t] = (time.time(), data)
+            _guardar_target(t, data)
+        except Exception:
+            pass
+
+    hist = _target_hist()
+    limite = (datetime.now(saltos.MARKET_TZ).date() - timedelta(days=AVISO_DIAS)).isoformat()
+    cambios = [
+        {"symbol": t, "valor": h["valor"], "anterior": h["anterior"],
+         "fecha": h["cambio"], "updated": h.get("updated")}
+        for t, h in hist.items()
+        if t in tickers and h.get("cambio") and h["cambio"] >= limite
+    ]
+    cambios.sort(key=lambda c: c["fecha"], reverse=True)
+    return {"targets": cambios}
+
+
+@app.get("/api/fomc")
+async def proxima_fomc():
+    """Fecha de la próxima decisión de tipos del FOMC."""
+    try:
+        return await fomc.proxima_reunion() or {}
+    except Exception:
+        return {}
+
+
 _target_cache: dict[str, tuple[float, dict | None]] = {}
 TARGET_CACHE_TTL = 21600  # 6 horas (el precio objetivo no cambia con frecuencia)
 
@@ -694,6 +770,7 @@ async def get_target_price(symbol: str):
             return cached[1]
         raise HTTPException(502, str(e))
     _target_cache[symbol] = (now, data)
+    _guardar_target(symbol, data)
     return data
 
 

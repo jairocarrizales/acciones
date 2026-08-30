@@ -104,6 +104,29 @@ input, select, textarea {
 
 #app.collapse-left { grid-template-columns: 42px 1fr; }
 
+/* barra de la próxima reunión de la Fed */
+.fed-box {
+  display: flex; align-items: center; gap: 6px; white-space: nowrap;
+  padding: 6px 12px; border-radius: 6px; font-size: 12px;
+  border: 1px solid rgba(239,68,68,0.55); background: rgba(239,68,68,0.12); color: #fca5a5;
+}
+.fed-box b { color: var(--red); letter-spacing: .5px; }
+.fed-box.inminente { background: rgba(239,68,68,0.28); border-color: var(--red); color: #fff; }
+
+/* modal de avisos de precio objetivo */
+.aviso-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; cursor: pointer;
+  border-radius: 6px; border-bottom: 1px solid rgba(140,150,170,0.12); font-size: 13px;
+}
+.aviso-row:hover { background: var(--hover); }
+.aviso-delta { font-size: 12px; }
+.aviso-delta.up { color: var(--green); } .aviso-delta.down { color: var(--red); }
+.aviso-delta i { font-size: 9px; opacity: .7; margin: 0 2px; }
+.aviso-fecha { margin-left: auto; font-size: 11px; color: var(--text-dim); }
+
+/* símbolos anclados arriba por earnings cercanos */
+.wl-symbol.anclado { background: rgba(239,68,68,0.06); }
+
 /* menú de vistas del mapa de mercado */
 .mapa-wrap { position: relative; }
 .mapa-menu {

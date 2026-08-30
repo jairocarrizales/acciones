@@ -260,6 +260,19 @@ def move_symbol(sid, group_id):
         conn.execute("UPDATE symbols SET group_id=?, position=? WHERE id=?", (group_id, pos, sid))
 
 
+def reorder_symbol(sid, group_id, before_sid=None):
+    """Coloca un símbolo en el grupo, justo antes de otro (o al final)."""
+    with connect() as conn:
+        filas = conn.execute(
+            "SELECT id FROM symbols WHERE group_id=? ORDER BY position, id", (group_id,)
+        ).fetchall()
+        ids = [r["id"] for r in filas if r["id"] != sid]
+        destino = ids.index(before_sid) if before_sid in ids else len(ids)
+        ids.insert(destino, sid)
+        for pos, i in enumerate(ids):
+            conn.execute("UPDATE symbols SET group_id=?, position=? WHERE id=?", (group_id, pos, i))
+
+
 # ---------- candles ----------
 
 def get_candles(symbol, interval):
