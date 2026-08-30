@@ -104,6 +104,19 @@ input, select, textarea {
 
 #app.collapse-left { grid-template-columns: 42px 1fr; }
 
+/* menú de vistas del mapa de mercado */
+.mapa-wrap { position: relative; }
+.mapa-menu {
+  position: absolute; top: 36px; right: 0; z-index: 60; min-width: 168px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.mapa-menu button {
+  display: block; width: 100%; text-align: left; border: none; background: none;
+  padding: 7px 10px; border-radius: 5px; font-size: 12px;
+}
+.mapa-menu button:hover { background: var(--hover); }
+
 /* panel del escáner de toques (derecha) */
 #app.with-toques { grid-template-columns: 260px 1fr 320px; grid-template-areas: "top top top" "left main toques"; }
 #app.with-toques.collapse-left { grid-template-columns: 42px 1fr 320px; }

@@ -2638,6 +2638,32 @@ const appEl = document.getElementById("app");
 // vela posterior rompe el extremo de la vela del toque. Es "excelente" si las medias
 // están ordenadas 20>40>100>200 (o al revés en bajista), y "bueno" si es 20>40>200.
 
+// Mapa del mercado (Finviz). Su cabecera manda X-Frame-Options: SAMEORIGIN, así que
+// no puede incrustarse en el panel; se abre en otra pestaña, que además deja el mapa
+// a pantalla completa y los gráficos intactos al volver.
+const FINVIZ_MAPA = "https://finviz.com/map";
+const btnMapa = document.getElementById("btnMapa");
+const mapaMenu = document.getElementById("mapaMenu");
+
+btnMapa.addEventListener("click", (e) => {
+  e.stopPropagation();
+  mapaMenu.classList.toggle("hidden");
+});
+
+mapaMenu.querySelectorAll("button").forEach((b) => {
+  b.addEventListener("click", () => {
+    mapaMenu.classList.add("hidden");
+    // se reutiliza siempre la misma pestaña, para no acumularlas
+    window.open(FINVIZ_MAPA + b.dataset.map, "finvizMapa");
+  });
+});
+
+document.addEventListener("click", (e) => {
+  if (!mapaMenu.classList.contains("hidden") && !e.target.closest(".mapa-wrap")) {
+    mapaMenu.classList.add("hidden");
+  }
+});
+
 const toquesPanel = document.getElementById("sidebar-toques");
 
 function abrirToques() {
