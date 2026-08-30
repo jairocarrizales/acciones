@@ -2314,6 +2314,7 @@ function renderGroup(g) {
     <div class="wl-group-header">
       <span class="caret"><i class="fa-solid fa-chevron-down"></i></span>
       <span class="wl-group-name" title="Doble clic para renombrar">${escapeHtml(g.name)}</span>
+      <button class="wl-group-edit" title="Renombrar grupo"><i class="fa-solid fa-pen"></i></button>
       <button class="wl-group-move" data-dir="up" title="Subir grupo"><i class="fa-solid fa-chevron-up"></i></button>
       <button class="wl-group-move" data-dir="down" title="Bajar grupo"><i class="fa-solid fa-chevron-down"></i></button>
       <button class="wl-group-del" title="Eliminar grupo"><i class="fa-solid fa-xmark"></i></button>
@@ -2321,7 +2322,8 @@ function renderGroup(g) {
     <div class="wl-symbols" data-group-id="${g.id}"></div>`;
 
   div.querySelector(".wl-group-header").addEventListener("click", (e) => {
-    if (e.target.closest(".wl-group-del") || e.target.closest(".wl-group-move")) return;
+    if (e.target.closest(".wl-group-del") || e.target.closest(".wl-group-move")
+        || e.target.closest(".wl-group-edit")) return;
     div.classList.toggle("collapsed");
   });
   // Sube/baja el grupo completo (con todos sus símbolos) un puesto.
@@ -2333,7 +2335,7 @@ function renderGroup(g) {
     });
     loadWatchlist();
   }));
-  div.querySelector(".wl-group-name").addEventListener("dblclick", async (e) => {
+  const renombrar = async (e) => {
     e.stopPropagation();
     const name = prompt("Nuevo nombre del grupo:", g.name);
     if (!name || name.trim() === g.name) return;
@@ -2342,7 +2344,9 @@ function renderGroup(g) {
       body: JSON.stringify({ name: name.trim() }),
     });
     loadWatchlist();
-  });
+  };
+  div.querySelector(".wl-group-name").addEventListener("dblclick", renombrar);
+  div.querySelector(".wl-group-edit").addEventListener("click", renombrar);
   div.querySelector(".wl-group-del").addEventListener("click", async (e) => {
     e.stopPropagation();
     if (!confirm(`¿Eliminar el grupo "${g.name}" y sus símbolos?`)) return;
