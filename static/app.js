@@ -2541,6 +2541,81 @@ document.getElementById("btnSaveApiKey").addEventListener("click", async () => {
 // actual. Cada cálculo se guarda con todos los datos usados para poder auditarlo.
 
 const appEl = document.getElementById("app");
+
+// ---------------- escáner de toques a la MA20 y cruces de medias ----------------
+// Un toque cuenta cuando el precio alcanza la MA20 (sin cerrar al otro lado) y una
+// vela posterior rompe el extremo de la vela del toque. Es "excelente" si las medias
+// están ordenadas 20>40>100>200 (o al revés en bajista), y "bueno" si es 20>40>200.
+
+const toquesPanel = document.getElementById("sidebar-toques");
+
+function abrirToques() {
+  toquesPanel.classList.remove("hidden");
+  appEl.classList.add("with-toques");
+  document.getElementById("btnToques").classList.add("active");
+  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
+  if (!document.getElementById("toquesList").innerHTML) escanearToques();
+}
+
+function cerrarToques() {
+  toquesPanel.classList.add("hidden");
+  appEl.classList.remove("with-toques");
+  document.getElementById("btnToques").classList.remove("active");
+  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
+}
+
+function renderToques(items) {
+  const list = document.getElementById("toquesList");
+  if (!items.length) { list.innerHTML = `<p class="hint" style="padding:0 12px;">Sin toques ni cruces recientes.</p>`; return; }
+  list.innerHTML = items.map((it) => {
+    const t = it.toques;
+    const dirCls = t ? (t.direccion === "alcista" ? "up" : "down") : "";
+    const badge = t
+      ? `<span class="toq-count ${t.calidad}">${t.total}</span>
+         <span class="toq-detalle">${t.excelentes ? t.excelentes + " exc" : ""}${t.excelentes && t.buenos ? " · " : ""}${t.buenos ? t.buenos + " buenos" : ""}</span>`
+      : `<span class="toq-detalle">sin toques</span>`;
+    const cruces = (it.cruces || []).map((c) =>
+      `<span class="toq-cruce ${c.direccion === "alcista" ? "up" : "down"}">${c.tf} ${c.par}${c.velas_atras <= 3 ? " ●" : ""}</span>`).join("");
+    return `
+      <div class="toq-row" data-ticker="${it.symbol}">
+        <div class="toq-top">
+          <b>${it.symbol}</b>
+          ${badge}
+          ${t ? `<span class="toq-dir ${dirCls}">${t.direccion}</span>` : ""}
+        </div>
+        ${t ? `<div class="toq-sub">último toque hace ${t.ultimo_velas_atras} velas (1H)</div>` : ""}
+        ${cruces ? `<div class="toq-cruces">${cruces}</div>` : ""}
+      </div>`;
+  }).join("");
+  list.querySelectorAll(".toq-row").forEach((r) =>
+    r.addEventListener("click", () => selectSymbol(r.dataset.ticker)));
+}
+
+async function escanearToques() {
+  const btn = document.getElementById("btnScanToques");
+  const st = document.getElementById("toquesStatus");
+  btn.disabled = true;
+  btn.classList.add("scanning");
+  st.textContent = "Escaneando toda la lista de seguimiento…";
+  try {
+    const r = await api("/api/toques");
+    renderToques(r.items || []);
+    const conToques = (r.items || []).filter((i) => i.toques).length;
+    st.textContent = `${conToques} activo(s) con toques · actualizado ${r.status?.updated_at || ""}`;
+  } catch (e) {
+    st.textContent = "Error al escanear: " + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("scanning");
+  }
+}
+
+document.getElementById("btnToques").addEventListener("click", () => {
+  if (toquesPanel.classList.contains("hidden")) abrirToques(); else cerrarToques();
+});
+document.getElementById("btnCloseToques").addEventListener("click", cerrarToques);
+document.getElementById("btnScanToques").addEventListener("click", escanearToques);
+
 const rangosPanel = document.getElementById("sidebar-rangos");
 let rangoKind = "call";
 

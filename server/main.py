@@ -16,6 +16,7 @@ from . import news
 from . import rangos
 from . import saltos
 from . import targetprice as tp
+from . import toques as tq
 from . import trends
 from . import twelvedata as td
 
@@ -811,6 +812,47 @@ def poll_alarm_events():
     global alarm_events
     events, alarm_events = alarm_events, []
     return events
+
+
+# ---------------- Escáner de toques a la MA20 y cruces de medias ----------------
+
+_toques_state = {"running": False, "done": 0, "total": 0, "updated_at": None}
+
+
+@app.get("/api/toques")
+async def escanear_toques():
+    """Toques a la MA20 en 1H y cruces de medias (20/40 y 100/200) en 1H, D1 y M15."""
+    if _toques_state["running"]:
+        return {"running": True, "items": [], "status": dict(_toques_state)}
+    tickers = _watchlist_tickers()
+    _toques_state.update(running=True, done=0, total=len(tickers))
+    items = []
+    try:
+        for t in tickers:
+            try:
+                h1 = await _ensure_candles(t, "1h")
+                res = tq.detectar_toques(h1)
+                cruces = []
+                for tf, etiqueta in (("1h", "1H"), ("1d", "D1"), ("m15", "M15")):
+                    velas = h1 if tf == "1h" else await _ensure_candles(t, tf)
+                    for c in tq.detectar_cruces(velas):
+                        cruces.append({**c, "tf": etiqueta})
+                if res or cruces:
+                    items.append({"symbol": t, "toques": res, "cruces": cruces})
+            except Exception:
+                pass
+            _toques_state["done"] += 1
+    finally:
+        _toques_state["running"] = False
+        _toques_state["updated_at"] = datetime.now(saltos.MARKET_TZ).strftime("%H:%M:%S ET")
+
+    # primero los que tienen toques, y dentro de esos los excelentes y con más toques
+    items.sort(key=lambda x: (
+        0 if x["toques"] else 1,
+        0 if (x["toques"] or {}).get("calidad") == "excelente" else 1,
+        -((x["toques"] or {}).get("total") or 0),
+    ))
+    return {"running": False, "items": items, "status": dict(_toques_state)}
 
 
 # ---------------- Rango de precios (cadena de opciones) ----------------
