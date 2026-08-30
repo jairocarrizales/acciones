@@ -2564,29 +2564,41 @@ function cerrarToques() {
   requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
 }
 
+const TOQ_TFS = ["M15", "1H", "4H", "D1"];
+
 function renderToques(items) {
   const list = document.getElementById("toquesList");
-  if (!items.length) { list.innerHTML = `<p class="hint" style="padding:0 12px;">Sin toques ni cruces recientes.</p>`; return; }
-  list.innerHTML = items.map((it) => {
-    const t = it.toques;
-    const dirCls = t ? (t.direccion === "alcista" ? "up" : "down") : "";
-    const badge = t
-      ? `<span class="toq-count ${t.calidad}">${t.total}</span>
-         <span class="toq-detalle">${t.excelentes ? t.excelentes + " exc" : ""}${t.excelentes && t.buenos ? " · " : ""}${t.buenos ? t.buenos + " buenos" : ""}</span>`
-      : `<span class="toq-detalle">sin toques</span>`;
+  if (!items.length) { list.innerHTML = `<p class="hint" style="padding:0 12px;">Sin datos todavía.</p>`; return; }
+
+  const cabecera = `<div class="toq-grid-head"><span></span>${
+    TOQ_TFS.map((tf) => `<span>${tf}</span>`).join("")}</div>`;
+
+  list.innerHTML = cabecera + items.map((it) => {
+    const celdas = TOQ_TFS.map((tf) => {
+      const c = (it.celdas || {})[tf] || {};
+      const est = c.estado || "nd";
+      // el número es el recuento de toques válidos a la MA20 en ese marco
+      const n = c.toques ? `<b>${c.toques}</b>` : "";
+      const tip = c.estado
+        ? `${tf}: ${est === "up" ? "alcista" : est === "down" ? "bajista" : "sin alineación"}` +
+          (c.toques ? ` · ${c.toques} toques (${c.excelentes} exc, ${c.buenos} buenos)` : " · sin toques")
+        : `${tf}: sin datos suficientes`;
+      return `<span class="toq-cell ${est}" title="${tip}">${n}</span>`;
+    }).join("");
+
     const cruces = (it.cruces || []).map((c) =>
       `<span class="toq-cruce ${c.direccion === "alcista" ? "up" : "down"}">${c.tf} ${c.par}${c.velas_atras <= 3 ? " ●" : ""}</span>`).join("");
+
     return `
-      <div class="toq-row" data-ticker="${it.symbol}">
-        <div class="toq-top">
-          <b>${it.symbol}</b>
-          ${badge}
-          ${t ? `<span class="toq-dir ${dirCls}">${t.direccion}</span>` : ""}
+      <div class="toq-row${it.pleno ? " pleno" : ""}" data-ticker="${it.symbol}">
+        <div class="toq-grid">
+          <span class="toq-sym">${it.symbol}${it.pleno ? '<i class="fa-solid fa-star" title="alineada en las 4 temporalidades"></i>' : ""}</span>
+          ${celdas}
         </div>
-        ${t ? `<div class="toq-sub">último toque hace ${t.ultimo_velas_atras} velas (1H)</div>` : ""}
         ${cruces ? `<div class="toq-cruces">${cruces}</div>` : ""}
       </div>`;
   }).join("");
+
   list.querySelectorAll(".toq-row").forEach((r) =>
     r.addEventListener("click", () => selectSymbol(r.dataset.ticker)));
 }
@@ -2600,8 +2612,8 @@ async function escanearToques() {
   try {
     const r = await api("/api/toques");
     renderToques(r.items || []);
-    const conToques = (r.items || []).filter((i) => i.toques).length;
-    st.textContent = `${conToques} activo(s) con toques · actualizado ${r.status?.updated_at || ""}`;
+    const plenos = (r.items || []).filter((i) => i.pleno).length;
+    st.textContent = `${(r.items || []).length} activos · ${plenos} alineado(s) en las 4 · ${r.status?.updated_at || ""}`;
   } catch (e) {
     st.textContent = "Error al escanear: " + e.message;
   } finally {

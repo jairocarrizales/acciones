@@ -118,6 +118,23 @@ def detectar_toques(candles):
     }
 
 
+def estado_tendencia(candles):
+    """Estado de la última vela para la rejilla: 'up', 'down' o 'flat'.
+
+    Lo marca el orden de las medias, igual que en los toques, de modo que la
+    celda y el recuento de toques siempre cuentan la misma historia.
+    """
+    if not candles or len(candles) < 210:
+        return None
+    ma = _medias(candles)
+    i = len(candles) - 1
+    if _calidad(ma, i, True):
+        return "up"
+    if _calidad(ma, i, False):
+        return "down"
+    return "flat"
+
+
 def detectar_cruces(candles, pares=((20, 40), (100, 200))):
     """Cruces recientes entre pares de medias, con su antigüedad en velas."""
     n = len(candles)

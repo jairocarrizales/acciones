@@ -114,19 +114,32 @@ input, select, textarea {
 #sidebar-toques.hidden { display: none !important; }
 #btnScanToques.scanning i { animation: spin 0.9s linear infinite; }
 #toquesList { padding: 0 8px 20px; }
-.toq-row { padding: 8px; border-radius: 6px; cursor: pointer; border-bottom: 1px solid rgba(140,150,170,0.10); }
+.toq-row { padding: 6px 8px; border-radius: 6px; cursor: pointer; border-bottom: 1px solid rgba(140,150,170,0.10); }
 .toq-row:hover { background: var(--hover); }
-.toq-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.toq-count {
-  font-size: 13px; font-weight: 700; min-width: 24px; text-align: center;
-  padding: 1px 7px; border-radius: 10px;
+.toq-row.pleno { background: rgba(59,130,246,0.07); }
+
+/* rejilla símbolo × temporalidad, al estilo de los escáneres de MetaTrader */
+.toq-grid, .toq-grid-head {
+  display: grid; grid-template-columns: 1fr repeat(4, 44px); align-items: center; gap: 4px;
 }
-.toq-count.excelente { background: rgba(34,197,94,0.25); color: var(--green); }
-.toq-count.bueno { background: rgba(59,130,246,0.22); color: var(--accent); }
-.toq-detalle { font-size: 10px; color: var(--text-dim); }
-.toq-dir { font-size: 10px; margin-left: auto; }
-.toq-dir.up { color: var(--green); } .toq-dir.down { color: var(--red); }
-.toq-sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+.toq-grid-head {
+  padding: 6px 8px 4px; font-size: 10px; color: var(--text-dim); text-transform: uppercase;
+  letter-spacing: .5px; border-bottom: 1px solid var(--border); position: sticky; top: 0;
+  background: var(--bg-panel); z-index: 2;
+}
+.toq-grid-head span { text-align: center; }
+.toq-grid-head span:first-child { text-align: left; }
+.toq-sym { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 5px; }
+.toq-sym i { font-size: 9px; color: var(--accent); }
+.toq-cell {
+  height: 22px; border-radius: 4px; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; border: 1px solid transparent;
+}
+.toq-cell b { font-weight: 700; }
+.toq-cell.up { background: rgba(34,197,94,0.22); color: var(--green); border-color: rgba(34,197,94,0.4); }
+.toq-cell.down { background: rgba(239,68,68,0.22); color: var(--red); border-color: rgba(239,68,68,0.4); }
+.toq-cell.flat { background: rgba(140,150,170,0.12); color: var(--text-dim); }
+.toq-cell.nd { background: repeating-linear-gradient(45deg, rgba(140,150,170,0.07) 0 4px, transparent 4px 8px); }
 .toq-cruces { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .toq-cruce { font-size: 9px; padding: 1px 6px; border-radius: 8px; background: rgba(140,150,170,0.16); color: var(--text-dim); }
 .toq-cruce.up { background: rgba(34,197,94,0.16); color: var(--green); }

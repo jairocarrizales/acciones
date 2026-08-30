@@ -819,9 +819,13 @@ def poll_alarm_events():
 _toques_state = {"running": False, "done": 0, "total": 0, "updated_at": None}
 
 
+TOQUES_TFS = (("m15", "M15"), ("1h", "1H"), ("4h", "4H"), ("1d", "D1"))
+
+
 @app.get("/api/toques")
 async def escanear_toques():
-    """Toques a la MA20 en 1H y cruces de medias (20/40 y 100/200) en 1H, D1 y M15."""
+    """Rejilla de tendencia por temporalidad, con los toques a la MA20 y los
+    cruces de medias (20/40 y 100/200) de cada activo de la lista."""
     if _toques_state["running"]:
         return {"running": True, "items": [], "status": dict(_toques_state)}
     tickers = _watchlist_tickers()
@@ -830,15 +834,43 @@ async def escanear_toques():
     try:
         for t in tickers:
             try:
-                h1 = await _ensure_candles(t, "1h")
-                res = tq.detectar_toques(h1)
-                cruces = []
-                for tf, etiqueta in (("1h", "1H"), ("1d", "D1"), ("m15", "M15")):
-                    velas = h1 if tf == "1h" else await _ensure_candles(t, tf)
-                    for c in tq.detectar_cruces(velas):
-                        cruces.append({**c, "tf": etiqueta})
-                if res or cruces:
-                    items.append({"symbol": t, "toques": res, "cruces": cruces})
+                celdas, cruces, h1 = {}, [], None
+                for tf, etiqueta in TOQUES_TFS:
+                    # cada temporalidad falla por su cuenta: si el proveedor
+                    # corta por límite de peticiones, la celda queda vacía pero
+                    # el resto de la fila se conserva
+                    try:
+                        velas = await _ensure_candles(t, tf)
+                    except Exception:
+                        celdas[etiqueta] = {"estado": None, "toques": 0, "excelentes": 0,
+                                            "buenos": 0, "ultimo_velas_atras": None}
+                        continue
+                    if tf == "1h":
+                        h1 = velas
+                    res = tq.detectar_toques(velas)
+                    celdas[etiqueta] = {
+                        "estado": tq.estado_tendencia(velas),
+                        "toques": (res or {}).get("total") or 0,
+                        "excelentes": (res or {}).get("excelentes") or 0,
+                        "buenos": (res or {}).get("buenos") or 0,
+                        "ultimo_velas_atras": (res or {}).get("ultimo_velas_atras"),
+                    }
+                    if tf in ("m15", "1h", "1d"):
+                        for c in tq.detectar_cruces(velas):
+                            cruces.append({**c, "tf": etiqueta})
+
+                res_h1 = tq.detectar_toques(h1) if h1 else None
+                alineados = sum(1 for c in celdas.values() if c["estado"] in ("up", "down"))
+                estados = {c["estado"] for c in celdas.values() if c["estado"] in ("up", "down")}
+                items.append({
+                    "symbol": t,
+                    "celdas": celdas,
+                    "toques": res_h1,
+                    "cruces": cruces,
+                    "alineados": alineados,
+                    # todas las temporalidades activas apuntan al mismo lado
+                    "pleno": len(estados) == 1 and alineados == len(TOQUES_TFS),
+                })
             except Exception:
                 pass
             _toques_state["done"] += 1
@@ -846,11 +878,12 @@ async def escanear_toques():
         _toques_state["running"] = False
         _toques_state["updated_at"] = datetime.now(saltos.MARKET_TZ).strftime("%H:%M:%S ET")
 
-    # primero los que tienen toques, y dentro de esos los excelentes y con más toques
+    # arriba los alineados en todas las temporalidades, luego por nº de marcos
+    # alineados y por toques totales en la rejilla
     items.sort(key=lambda x: (
-        0 if x["toques"] else 1,
-        0 if (x["toques"] or {}).get("calidad") == "excelente" else 1,
-        -((x["toques"] or {}).get("total") or 0),
+        0 if x["pleno"] else 1,
+        -x["alineados"],
+        -sum(c["toques"] for c in x["celdas"].values()),
     ))
     return {"running": False, "items": items, "status": dict(_toques_state)}
 
