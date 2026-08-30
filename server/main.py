@@ -169,7 +169,7 @@ def _market_open_now() -> bool:
 # apertura (9:30, 10:30...), lo que produce cuerpos y mechas distintos con los mismos
 # datos. Se agregan aquí para que los patrones coincidan.
 AGREGADAS = {"1h": 1, "4h": 4}
-AGREGADAS_MIN = {"m2": 2}  # minutos por vela, agrupados desde M1
+AGREGADAS_MIN = {"m2": 2, "m3": 3}  # minutos por vela, agrupados desde M1
 
 
 def _agrupar_minutos(velas, minutos):
