@@ -897,7 +897,7 @@ def poll_alarm_events():
 _toques_state = {"running": False, "done": 0, "total": 0, "updated_at": None}
 
 
-TOQUES_TFS = (("m15", "M15"), ("1h", "1H"), ("4h", "4H"), ("1d", "D1"))
+TOQUES_TFS = (("m15", "M15"), ("1h", "1H"), ("1d", "D1"))
 
 
 @app.get("/api/toques")
@@ -921,23 +921,29 @@ async def escanear_toques():
                         velas = await _ensure_candles(t, tf)
                     except Exception:
                         celdas[etiqueta] = {"estado": None, "toques": 0, "excelentes": 0,
-                                            "buenos": 0, "ultimo_velas_atras": None}
+                                            "buenos": 0, "ultimo_velas_atras": None,
+                                            "ultima_media": None, "por_media": {},
+                                            "reciente": None}
                         continue
                     if tf == "1h":
                         h1 = velas
-                    res = tq.detectar_toques(velas)
+                    res = tq.detectar_rebotes(velas)
+                    # el rebote más nuevo es lo accionable: qué media y hace cuánto
+                    ultimo = (res or {}).get("rebotes", [])[-1:] or [None]
                     celdas[etiqueta] = {
                         "estado": tq.estado_tendencia(velas),
                         "toques": (res or {}).get("total") or 0,
                         "excelentes": (res or {}).get("excelentes") or 0,
                         "buenos": (res or {}).get("buenos") or 0,
                         "ultimo_velas_atras": (res or {}).get("ultimo_velas_atras"),
+                        "ultima_media": (res or {}).get("ultima_media"),
+                        "por_media": (res or {}).get("por_media") or {},
+                        "reciente": ultimo[0],
                     }
-                    if tf in ("m15", "1h", "1d"):
-                        for c in tq.detectar_cruces(velas):
-                            cruces.append({**c, "tf": etiqueta})
+                    for c in tq.detectar_cruces(velas):
+                        cruces.append({**c, "tf": etiqueta})
 
-                res_h1 = tq.detectar_toques(h1) if h1 else None
+                res_h1 = tq.detectar_rebotes(h1) if h1 else None
                 alineados = sum(1 for c in celdas.values() if c["estado"] in ("up", "down"))
                 estados = {c["estado"] for c in celdas.values() if c["estado"] in ("up", "down")}
                 items.append({
@@ -956,13 +962,21 @@ async def escanear_toques():
         _toques_state["running"] = False
         _toques_state["updated_at"] = datetime.now(saltos.MARKET_TZ).strftime("%H:%M:%S ET")
 
-    # arriba los alineados en todas las temporalidades, luego por nº de marcos
-    # alineados y por toques totales en la rejilla
-    items.sort(key=lambda x: (
-        0 if x["pleno"] else 1,
-        -x["alineados"],
-        -sum(c["toques"] for c in x["celdas"].values()),
-    ))
+    # Arriba lo accionable: quien acaba de rebotar. Se mide por la celda con el
+    # rebote más fresco, dando prioridad a los excelentes y a las medias mayores
+    # (rebotar en la 200 pesa más que en la 20).
+    def frescura(item):
+        mejor = None
+        for celda in item["celdas"].values():
+            r = celda.get("reciente")
+            if not r:
+                continue
+            rank = (r["velas_atras"], 0 if r["calidad"] == "excelente" else 1, -r["media"])
+            if mejor is None or rank < mejor:
+                mejor = rank
+        return mejor or (9999, 9, 0)
+
+    items.sort(key=lambda x: (frescura(x), -x["alineados"]))
     return {"running": False, "items": items, "status": dict(_toques_state)}
 
 

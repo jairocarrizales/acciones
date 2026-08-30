@@ -2805,7 +2805,7 @@ function cerrarToques() {
   requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
 }
 
-const TOQ_TFS = ["M15", "1H", "4H", "D1"];
+const TOQ_TFS = ["M15", "1H", "D1"];
 
 function renderToques(items) {
   const list = document.getElementById("toquesList");
@@ -2817,14 +2817,22 @@ function renderToques(items) {
   list.innerHTML = cabecera + items.map((it) => {
     const celdas = TOQ_TFS.map((tf) => {
       const c = (it.celdas || {})[tf] || {};
+      const r = c.reciente;
       const est = c.estado || "nd";
-      // el número es el recuento de toques válidos a la MA20 en ese marco
-      const n = c.toques ? `<b>${c.toques}</b>` : "";
-      const tip = c.estado
-        ? `${tf}: ${est === "up" ? "alcista" : est === "down" ? "bajista" : "sin alineación"}` +
-          (c.toques ? ` · ${c.toques} toques (${c.excelentes} exc, ${c.buenos} buenos)` : " · sin toques")
-        : `${tf}: sin datos suficientes`;
-      return `<span class="toq-cell ${est}" title="${tip}">${n}</span>`;
+      if (!r) {
+        const tip = c.estado ? `${tf}: ${est === "up" ? "alcista" : est === "down" ? "bajista" : "sin alineación"} · sin rebotes`
+                             : `${tf}: sin datos suficientes`;
+        return `<span class="toq-cell ${est}" title="${tip}">·</span>`;
+      }
+      // lo esencial de un vistazo: en qué media rebotó y hace cuántas velas
+      const desglose = Object.entries(c.por_media || {})
+        .map(([m, n]) => `MA${m}: ${n}`).join(" · ");
+      const tip = `${tf} — rebote ${r.direccion} en la MA${r.media}, hace ${r.velas_atras} vela(s)`
+        + ` · impulso ${r.impulso_pct}% · ${r.calidad}`
+        + (desglose ? ` · total ${c.toques} (${desglose})` : "");
+      return `<span class="toq-cell ${est} ${r.calidad}" title="${tip}">
+          <b>MA${r.media}</b><i>${r.velas_atras === 0 ? "ahora" : r.velas_atras}</i>
+        </span>`;
     }).join("");
 
     const cruces = (it.cruces || []).map((c) =>
@@ -2833,7 +2841,7 @@ function renderToques(items) {
     return `
       <div class="toq-row${it.pleno ? " pleno" : ""}" data-ticker="${it.symbol}">
         <div class="toq-grid">
-          <span class="toq-sym">${it.symbol}${it.pleno ? '<i class="fa-solid fa-star" title="alineada en las 4 temporalidades"></i>' : ""}</span>
+          <span class="toq-sym">${it.symbol}${it.pleno ? '<i class="fa-solid fa-star" title="alineada en las 3 temporalidades"></i>' : ""}</span>
           ${celdas}
         </div>
         ${cruces ? `<div class="toq-cruces">${cruces}</div>` : ""}
@@ -2853,8 +2861,10 @@ async function escanearToques() {
   try {
     const r = await api("/api/toques");
     renderToques(r.items || []);
-    const plenos = (r.items || []).filter((i) => i.pleno).length;
-    st.textContent = `${(r.items || []).length} activos · ${plenos} alineado(s) en las 4 · ${r.status?.updated_at || ""}`;
+    // cuántos han rebotado en las últimas velas: es lo que se mira al abrir
+    const frescos = (r.items || []).filter((i) =>
+      Object.values(i.celdas || {}).some((c) => c.reciente && c.reciente.velas_atras <= 3)).length;
+    st.textContent = `${(r.items || []).length} activos · ${frescos} con rebote reciente · ${r.status?.updated_at || ""}`;
   } catch (e) {
     st.textContent = "Error al escanear: " + e.message;
   } finally {

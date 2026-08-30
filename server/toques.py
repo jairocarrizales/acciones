@@ -1,23 +1,36 @@
-"""Escáner de toques a la media de 20 y de cruces de medias.
+"""Escáner de rebotes del precio en las medias móviles.
 
-TOQUES (1H): la tendencia la marca el orden de las medias, no la vela. En
-tendencia alcista una vela "toca" la MA20 cuando su mínimo la alcanza y CIERRA
-por encima de ella; si cierra por debajo el toque queda invalidado. En bajista
-es al revés: el máximo alcanza la media y el cierre queda por encima.
-El toque solo cuenta como válido si, además, una vela posterior ROMPE el extremo
-de la vela del toque: en alcista supera su máximo; en bajista pierde su mínimo.
+Un REBOTE es la secuencia completa que se ve en el gráfico: el precio viene de
+lejos, se acerca a una media, la toca sin perderla y se aleja de nuevo en la
+dirección de la tendencia. Se exigen las cuatro fases, porque cualquiera por
+separado produce señales falsas:
 
-Calidad del toque según el orden de las medias en ese momento:
-    excelente -> 20 > 40 > 100 > 200  (alcista) o el inverso (bajista)
-    bueno     -> 20 > 40 > 200        (sin exigir la 100 en su sitio)
+  1. APROXIMACIÓN  el precio venía separado de la media (no lleva pegado a ella)
+  2. TOQUE         la vela alcanza la media con su mínimo (alcista) o máximo (bajista)
+  3. RESPETO       el cierre queda del lado de la tendencia; si la pierde, no vale
+  4. IMPULSO       velas posteriores rompen el extremo del toque y se alejan
 
-CRUCES: se detecta el cruce de la 20 con la 40, y el de la 100 con la 200, en las
-temporalidades pedidas, informando de cuántas velas hace que ocurrió.
+La tendencia la marca el orden de las medias, nunca la vela suelta: así un cierre
+al lado contrario invalida el rebote en vez de cambiarle el signo.
+
+Se vigilan las medias de 20, 40, 100 y 200 en cada temporalidad. Rebotar en la 200
+no es lo mismo que rebotar en la 20, así que cada rebote lleva la media donde
+ocurrió y una calidad que combina el orden de las medias con la limpieza del giro.
+
+CRUCES: además se detecta el cruce de la 20 con la 40, y de la 100 con la 200,
+informando de cuántas velas hace que ocurrió.
 """
 
-TOUCH_WINDOW = 100      # velas de 1H en las que se buscan toques (~3 semanas)
-BREAK_LOOKAHEAD = 10    # velas siguientes en las que se admite la ruptura
-CROSS_LOOKBACK = 40     # velas hacia atrás para considerar un cruce "reciente"
+PERIODOS = (20, 40, 100, 200)
+
+TOUCH_WINDOW = 100       # velas en las que se buscan rebotes (~3 semanas en 1H)
+BREAK_LOOKAHEAD = 10     # velas siguientes en las que se admite la ruptura
+CROSS_LOOKBACK = 40      # velas hacia atrás para considerar un cruce "reciente"
+
+APPROACH_LOOKBACK = 6    # velas previas que se miran para exigir la aproximación
+APPROACH_MIN_PCT = 0.45  # % mínimo de separación previa: filtra el precio pegado
+IMPULSE_MIN_PCT = 0.55   # % mínimo que debe alejarse después para contar como rebote
+TOUCH_TOLERANCE = 0.0015 # 0.15%: roce que cuenta como toque aunque no llegue a cruzar
 
 
 def sma(values, period):
@@ -34,10 +47,10 @@ def sma(values, period):
 
 def _medias(candles):
     closes = [c["close"] for c in candles]
-    return {p: sma(closes, p) for p in (20, 40, 100, 200)}
+    return {p: sma(closes, p) for p in PERIODOS}
 
 
-def _calidad(ma, i, alcista):
+def _orden(ma, i, alcista):
     """Orden de las medias en la vela i: 'excelente', 'bueno' o None."""
     v20, v40, v100, v200 = ma[20][i], ma[40][i], ma[100][i], ma[200][i]
     if None in (v20, v40, v200):
@@ -51,86 +64,156 @@ def _calidad(ma, i, alcista):
     return "bueno" if v20 < v40 < v200 else None
 
 
-def detectar_toques(candles):
-    """Toques válidos a la MA20 en la ventana reciente."""
+def _toca(candle, valor, alcista):
+    """¿La vela alcanza la media? Se admite un roce muy cercano sin cruzarla."""
+    margen = valor * TOUCH_TOLERANCE
+    if alcista:
+        return candle["low"] <= valor + margen
+    return candle["high"] >= valor - margen
+
+
+def _venia_separado(candles, ma_vals, i, alcista):
+    """Fase 1: el precio estaba lejos de la media antes de acercarse."""
+    mejor = 0.0
+    for j in range(max(0, i - APPROACH_LOOKBACK), i):
+        v = ma_vals[j]
+        if v is None:
+            continue
+        # separación de la vela previa respecto de la media, del lado de la tendencia
+        dist = (candles[j]["low"] - v) / v if alcista else (v - candles[j]["high"]) / v
+        mejor = max(mejor, dist * 100)
+    return mejor >= APPROACH_MIN_PCT
+
+
+def _impulso(candles, ma_vals, i, alcista):
+    """Fase 4: tras el toque el precio rompe el extremo y se aleja de la media.
+
+    Devuelve el % máximo que llegó a alejarse, o None si nunca rompió.
+    """
+    c = candles[i]
+    roto = False
+    alejamiento = 0.0
+    for j in range(i + 1, min(len(candles), i + 1 + BREAK_LOOKAHEAD)):
+        k = candles[j]
+        if alcista and k["high"] > c["high"]:
+            roto = True
+        if not alcista and k["low"] < c["low"]:
+            roto = True
+        if not roto:
+            continue
+        v = ma_vals[j]
+        if v is None:
+            continue
+        dist = (k["high"] - v) / v if alcista else (v - k["low"]) / v
+        alejamiento = max(alejamiento, dist * 100)
+    return alejamiento if roto else None
+
+
+def _agrupar(rebotes, separacion=4):
+    """Funde los rebotes contiguos en la misma media, quedándose con el mejor.
+
+    Dos velas seguidas que tocan la misma media son el mismo rebote visto dos
+    veces; contarlas por separado inflaría el total sin añadir información.
+    """
+    salida = []
+    for r in sorted(rebotes, key=lambda x: -x["velas_atras"]):  # del más antiguo al más nuevo
+        previo = next((p for p in reversed(salida)
+                       if p["media"] == r["media"]
+                       and p["velas_atras"] - r["velas_atras"] <= separacion), None)
+        if previo is None:
+            salida.append(r)
+        elif r["impulso_pct"] > previo["impulso_pct"]:
+            previo.update(r)  # el mismo rebote, pero con su mejor lectura
+    return salida
+
+
+def detectar_rebotes(candles):
+    """Rebotes válidos en cualquiera de las medias, dentro de la ventana reciente."""
     n = len(candles)
     if n < 210:
         return None
     ma = _medias(candles)
     desde = max(200, n - TOUCH_WINDOW)
-    toques = []
+    rebotes = []
 
     for i in range(desde, n):
-        v20 = ma[20][i]
-        if v20 is None:
-            continue
-        c = candles[i]
-        # La tendencia la define el orden de las medias, no la vela: así un
-        # cierre al lado contrario invalida el toque en vez de cambiarle el signo.
-        calidad = _calidad(ma, i, True)
-        alcista = calidad is not None
+        # dirección según el orden de las medias
+        orden = _orden(ma, i, True)
+        alcista = orden is not None
         if not alcista:
-            calidad = _calidad(ma, i, False)
-            if calidad is None:
+            orden = _orden(ma, i, False)
+            if orden is None:
                 continue
 
-        # Toque: el rango de la vela alcanza la media y el cierre queda del lado
-        # de la tendencia. Si cierra al otro lado, el toque no cuenta.
-        if alcista:
-            if not (c["low"] <= v20 and c["close"] > v20):
+        c = candles[i]
+        for periodo in PERIODOS:
+            vals = ma[periodo]
+            v = vals[i]
+            if v is None or not _toca(c, v, alcista):
                 continue
-        else:
-            if not (c["high"] >= v20 and c["close"] < v20):
+            # fase 3: el cierre respeta la media
+            if alcista and c["close"] <= v:
+                continue
+            if not alcista and c["close"] >= v:
+                continue
+            # fase 1: venía separado, no arrastrándose por la media
+            if not _venia_separado(candles, vals, i, alcista):
+                continue
+            # fase 4: rompe y se aleja lo suficiente
+            alej = _impulso(candles, vals, i, alcista)
+            if alej is None or alej < IMPULSE_MIN_PCT:
                 continue
 
-        # Validación: una vela posterior rompe el extremo de la vela del toque.
-        roto = False
-        for j in range(i + 1, min(n, i + 1 + BREAK_LOOKAHEAD)):
-            if alcista and candles[j]["high"] > c["high"]:
-                roto = True
-                break
-            if not alcista and candles[j]["low"] < c["low"]:
-                roto = True
-                break
-        if not roto:
-            continue
+            # un rebote es "excelente" si además de las medias ordenadas el giro
+            # fue amplio; si no, cuenta como bueno
+            limpio = orden == "excelente" and alej >= IMPULSE_MIN_PCT * 2
+            rebotes.append({
+                "time": c["time"],
+                "media": periodo,
+                "price": round(v, 4),
+                "direccion": "alcista" if alcista else "bajista",
+                "orden": orden,
+                "calidad": "excelente" if limpio else "bueno",
+                "impulso_pct": round(alej, 2),
+                "velas_atras": n - 1 - i,
+            })
 
-        toques.append({
-            "time": c["time"],
-            "price": round(v20, 4),
-            "direccion": "alcista" if alcista else "bajista",
-            "calidad": calidad,
-            "velas_atras": n - 1 - i,
-        })
-
-    if not toques:
+    # Velas consecutivas sobre la misma media son el MISMO rebote visto dos veces:
+    # se conserva solo el de mayor impulso, para que la lista no lo cuente repetido.
+    rebotes = _agrupar(rebotes)
+    if not rebotes:
         return None
-    excelentes = sum(1 for t in toques if t["calidad"] == "excelente")
-    ultimo = toques[-1]
+    excelentes = sum(1 for r in rebotes if r["calidad"] == "excelente")
+    ultimo = rebotes[-1]
+    por_media = {}
+    for r in rebotes:
+        por_media[r["media"]] = por_media.get(r["media"], 0) + 1
     return {
-        "total": len(toques),
+        "total": len(rebotes),
         "excelentes": excelentes,
-        "buenos": len(toques) - excelentes,
+        "buenos": len(rebotes) - excelentes,
         "direccion": ultimo["direccion"],
         "calidad": "excelente" if excelentes else "bueno",
         "ultimo_velas_atras": ultimo["velas_atras"],
-        "toques": toques[-12:],
+        "ultima_media": ultimo["media"],
+        "por_media": por_media,
+        "rebotes": rebotes[-12:],
     }
 
 
-def estado_tendencia(candles):
-    """Estado de la última vela para la rejilla: 'up', 'down' o 'flat'.
+# nombre anterior, conservado para no romper las llamadas existentes
+detectar_toques = detectar_rebotes
 
-    Lo marca el orden de las medias, igual que en los toques, de modo que la
-    celda y el recuento de toques siempre cuentan la misma historia.
-    """
+
+def estado_tendencia(candles):
+    """Estado de la última vela para la rejilla: 'up', 'down' o 'flat'."""
     if not candles or len(candles) < 210:
         return None
     ma = _medias(candles)
     i = len(candles) - 1
-    if _calidad(ma, i, True):
+    if _orden(ma, i, True):
         return "up"
-    if _calidad(ma, i, False):
+    if _orden(ma, i, False):
         return "down"
     return "flat"
 
@@ -155,7 +238,6 @@ def detectar_cruces(candles, pares=((20, 40), (100, 200))):
                     "velas_atras": n - 1 - i,
                     "time": candles[i]["time"],
                 })
-    # el más reciente de cada par
     ultimos = {}
     for c in fuera:
         if c["par"] not in ultimos or c["velas_atras"] < ultimos[c["par"]]["velas_atras"]:
