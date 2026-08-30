@@ -1,9 +1,11 @@
 """Escáner de toques a la media de 20 y de cruces de medias.
 
-TOQUES (1H): una vela "toca" la MA20 cuando su mínimo la alcanza sin cerrar por
-debajo (tendencia alcista) o su máximo la alcanza sin cerrar por encima (bajista).
-El toque solo cuenta como válido si una vela posterior ROMPE el extremo de la vela
-del toque: en alcista supera su máximo; en bajista pierde su mínimo.
+TOQUES (1H): la tendencia la marca el orden de las medias, no la vela. En
+tendencia alcista una vela "toca" la MA20 cuando su mínimo la alcanza y CIERRA
+por encima de ella; si cierra por debajo el toque queda invalidado. En bajista
+es al revés: el máximo alcanza la media y el cierre queda por encima.
+El toque solo cuenta como válido si, además, una vela posterior ROMPE el extremo
+de la vela del toque: en alcista supera su máximo; en bajista pierde su mínimo.
 
 Calidad del toque según el orden de las medias en ese momento:
     excelente -> 20 > 40 > 100 > 200  (alcista) o el inverso (bajista)
@@ -63,19 +65,23 @@ def detectar_toques(candles):
         if v20 is None:
             continue
         c = candles[i]
-        alcista = c["close"] > v20
-        # Toque: el rango de la vela alcanza la media, pero el cierre queda del
-        # lado de la tendencia (no la atraviesa).
-        if alcista:
-            toca = c["low"] <= v20
-        else:
-            toca = c["high"] >= v20
-        if not toca:
-            continue
+        # La tendencia la define el orden de las medias, no la vela: así un
+        # cierre al lado contrario invalida el toque en vez de cambiarle el signo.
+        calidad = _calidad(ma, i, True)
+        alcista = calidad is not None
+        if not alcista:
+            calidad = _calidad(ma, i, False)
+            if calidad is None:
+                continue
 
-        calidad = _calidad(ma, i, alcista)
-        if calidad is None:
-            continue
+        # Toque: el rango de la vela alcanza la media y el cierre queda del lado
+        # de la tendencia. Si cierra al otro lado, el toque no cuenta.
+        if alcista:
+            if not (c["low"] <= v20 and c["close"] > v20):
+                continue
+        else:
+            if not (c["high"] >= v20 and c["close"] < v20):
+                continue
 
         # Validación: una vela posterior rompe el extremo de la vela del toque.
         roto = False
