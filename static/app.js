@@ -202,7 +202,7 @@ function buildPaneDom(letter) {
       </div>
       <span class="spacer"></span>
       <button class="btn-toggle-ma tool-btn" data-pane="${letter}" title="Mostrar/ocultar medias móviles"><i class="fa-solid fa-wave-square"></i></button>
-      <button class="btn-toggle-dma tool-btn" data-pane="${letter}" title="Mostrar/ocultar niveles de MAs diarias (D1) en intradía">D1</button>
+      <button class="btn-toggle-dma tool-btn" data-pane="${letter}" title="Medias fijas de una temporalidad mayor">D1</button>
       <button class="btn-toggle-bb tool-btn active" data-pane="${letter}" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
       <button class="btn-toggle-stoch tool-btn" data-pane="${letter}" title="Panel inferior: Worden Stochastics 12 %K 3 + Volumen"><i class="fa-solid fa-chart-column"></i></button>
     </div>
@@ -254,7 +254,9 @@ function createPane(letter, defaultInterval) {
     maSeries: [], maVisible: false, bbSeries: [], bbVisible: true, dailyMaLines: [],
     stochVisible: localStorage.getItem(`stochVisible:${letter}`) === "1",
     volSeries: null, stochSeries: null, stochLevelSeries: [],
-    dmaVisible: localStorage.getItem(`dmaVisible:${letter}`) !== "0",
+    // Arranca apagado; cada clic avanza en el ciclo y la elección se recuerda.
+    dmaMode: localStorage.getItem(`dmaMode:${letter}`) || "",
+    dmaRef: {}, // temporalidad de referencia -> velas ya descargadas
     extVisible: false, // sesión extendida (pre/post): retirada de la barra por no ser útil en valores poco líquidos
     extPrimitive: null,
     targetPriceLine: null, alarmPriceLines: [], sessionPrimitive: null, prevClose: null,
@@ -268,7 +270,7 @@ function createPane(letter, defaultInterval) {
   // visible de las velas (con anti-rebote para no recalcular en cada píxel).
   let redibujoDma = null;
   chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-    if (!pane.dmaVisible || !pane.dailyMaLines.length) return;
+    if (!pane.dmaMode || !pane.dailyMaLines.length) return;
     clearTimeout(redibujoDma);
     redibujoDma = setTimeout(() => applyDailyMaLines(pane), 180);
   });
@@ -371,15 +373,39 @@ function renderMAs(pane) {
 // toma el valor que tenía la MA diaria en SU día, de modo que se ve la curva completa
 // (escalonada, un tramo por día) y no solo el nivel actual. Se dibujan punteadas para
 // distinguirlas de las MAs propias de la temporalidad.
+// Temporalidades de referencia que puede fijar el botón. En M5 y M2 el ciclo
+// añade H1 y M15, porque a ese detalle las medias diarias quedan muy lejos.
+const DMA_CICLO = ["", "1d", "1h", "m15"];
+const DMA_CICLO_CORTO = ["", "1d"];
+const DMA_ETIQUETA = { "1d": "D1", "1h": "H1", m15: "M15" };
+// Segundos que abarca cada vela de la referencia, para agrupar las intradía.
+const DMA_TRAMO = { "1h": 3600, m15: 900 };
+
+function dmaCiclo(pane) {
+  return ["m5", "m2"].includes(pane.interval) ? DMA_CICLO : DMA_CICLO_CORTO;
+}
+
+/** Modo válido en esta temporalidad: fuera de M5/M2 solo existe D1. */
+function dmaModoValido(pane) {
+  return dmaCiclo(pane).includes(pane.dmaMode) ? pane.dmaMode : (pane.dmaMode ? "1d" : "");
+}
+
 function applyDailyMaLines(pane) {
   pane.dailyMaLines.forEach((s) => { try { pane.chart.removeSeries(s); } catch (_) {} });
   pane.dailyMaLines = [];
   const intradia = ["m2", "m5", "m15", "1h", "4h"].includes(pane.interval);
-  if (!intradia || !pane.dailyCandles.length || !pane.candles.length) return;
+  const modo = dmaModoValido(pane);
+  if (!intradia || !modo || !pane.candles.length) return;
 
-  const closes = pane.dailyCandles.map((c) => c.close);
-  // Día (clave AAAAMMDD) -> valor de cada MA diaria en ese día.
-  const dayKeys = pane.dailyCandles.map((c) => dayKeyOf(c.time));
+  // Velas de la referencia: las diarias ya cargadas, o las de H1/M15 pedidas aparte.
+  const ref = modo === "1d" ? pane.dailyCandles : pane.dmaRef[modo];
+  if (!ref || !ref.length) return;
+
+  const closes = ref.map((c) => c.close);
+  // Clave del tramo (día, hora o cuarto de hora) -> valor de cada media en él.
+  const tramo = DMA_TRAMO[modo];
+  const claveDe = tramo ? (t) => Math.floor(t / tramo) : dayKeyOf;
+  const dayKeys = ref.map((c) => claveDe(c.time));
 
   // Límites del recorte: el rango de las velas que se están viendo, con un pequeño
   // margen para que las medias fuera de rango queden justo en el borde.
@@ -410,14 +436,14 @@ function applyDailyMaLines(pane) {
     // pegada al borde en vez de estirar la escala y aplastar las velas.
     const data = [];
     for (const c of pane.candles) {
-      const v = porDia.get(dayKeyOf(c.time));
+      const v = porDia.get(claveDe(c.time));
       if (v != null) data.push({ time: c.time, value: Math.min(techo, Math.max(suelo, v)) });
     }
     if (!data.length) return;
 
     const series = pane.chart.addSeries(LC.LineSeries, {
       color: ma.color, lineWidth: 1, lineStyle: LC.LineStyle.Dotted,
-      visible: pane.dmaVisible, priceLineVisible: false, lastValueVisible: false,
+      visible: true, priceLineVisible: false, lastValueVisible: false,
       crosshairMarkerVisible: false,
     });
     series.setData(data);
@@ -432,6 +458,36 @@ async function loadDailyReference(pane) {
     pane.dailyCandles = [];
   }
   applyDailyMaLines(pane);
+}
+
+/** Descarga la referencia H1/M15 la primera vez que se pide para este símbolo. */
+async function ensureDmaRef(pane) {
+  const modo = dmaModoValido(pane);
+  if (!modo || modo === "1d" || pane.dmaRef[modo]) return;
+  try {
+    pane.dmaRef[modo] = await api(`/api/candles/${pane.symbol}/${modo}`);
+  } catch (_) {
+    pane.dmaRef[modo] = [];
+  }
+}
+
+/** Refresca las medias fijas, trayendo antes la referencia si hace falta. */
+async function refreshDma(pane) {
+  await ensureDmaRef(pane);
+  applyDailyMaLines(pane);
+}
+
+/** Texto y estado del botón según el modo activo en esta temporalidad. */
+function pintarBotonDma(pane) {
+  const btn = document.querySelector(`.btn-toggle-dma[data-pane="${pane.letter}"]`);
+  if (!btn) return;
+  const modo = dmaModoValido(pane);
+  // Apagado: se muestra la siguiente referencia del ciclo, para saber qué se activará.
+  btn.textContent = DMA_ETIQUETA[modo] || DMA_ETIQUETA[dmaCiclo(pane)[1]];
+  btn.classList.toggle("active", !!modo);
+  btn.title = modo
+    ? `Medias fijas de ${DMA_ETIQUETA[modo]} (clic para cambiar de referencia)`
+    : "Mostrar las medias fijas de una temporalidad mayor";
 }
 
 // ---------------- bandas de bollinger (20, 2) ----------------
@@ -1601,10 +1657,12 @@ async function loadPaneData(pane) {
   const lbl = document.querySelector(`.pane-symbol-label[data-pane="${pane.letter}"]`);
   if (lbl) lbl.textContent = pane.symbol;
   updateWatermark(pane);
+  pane.dmaRef = {}; // otro símbolo: las referencias H1/M15 en caché ya no valen
   await Promise.all([
     loadCandles(pane), loadMAConfig(pane), loadAlarms(pane), loadEarnings(pane),
     loadTargetPrice(pane), loadDailyReference(pane), loadPrevClose(pane),
   ]);
+  await refreshDma(pane);
 }
 
 // Cambia el símbolo del panel ENFOCADO (clic en un panel para enfocarlo).
@@ -1624,7 +1682,7 @@ document.querySelectorAll(".btn-refresh-pane").forEach((btn) => {
     btn.disabled = true;
     try {
       await loadCandles(pane, true);
-      applyDailyMaLines(pane); // mismo símbolo: pane.dailyCandles ya es válido
+      await refreshDma(pane);
       toast(`${pane.symbol} (${pane.interval}) actualizado con los últimos datos.`);
     } catch (e) {
       toast("Error al actualizar: " + e.message);
@@ -1659,12 +1717,16 @@ document.querySelectorAll(".btn-toggle-stoch").forEach((btn) => {
 // independiente del botón de MAs de la temporalidad, con preferencia local por panel.
 document.querySelectorAll(".btn-toggle-dma").forEach((btn) => {
   const pane = panes[btn.dataset.pane];
-  btn.classList.toggle("active", pane.dmaVisible);
-  btn.addEventListener("click", () => {
-    pane.dmaVisible = !pane.dmaVisible;
-    localStorage.setItem(`dmaVisible:${pane.letter}`, pane.dmaVisible ? "1" : "0");
-    btn.classList.toggle("active", pane.dmaVisible);
-    pane.dailyMaLines.forEach((s) => s.applyOptions({ visible: pane.dmaVisible }));
+  pintarBotonDma(pane);
+  btn.addEventListener("click", async () => {
+    // Cicla apagado -> D1 -> H1 -> M15 -> apagado. En M15 y superiores el ciclo
+    // es solo apagado -> D1, porque ahí H1 y M15 no aportan nada nuevo.
+    const ciclo = dmaCiclo(pane);
+    const i = ciclo.indexOf(dmaModoValido(pane));
+    pane.dmaMode = ciclo[(i + 1) % ciclo.length];
+    localStorage.setItem(`dmaMode:${pane.letter}`, pane.dmaMode);
+    pintarBotonDma(pane);
+    await refreshDma(pane);
   });
 });
 
@@ -1686,7 +1748,8 @@ document.querySelectorAll(".intervals").forEach((group) => {
       pane.interval = btn.dataset.interval;
       pane.chart.applyOptions({ timeScale: { timeVisible: pane.interval !== "1d" } });
       await loadCandles(pane);
-      applyDailyMaLines(pane); // mismo símbolo: pane.dailyCandles ya es válido
+      pintarBotonDma(pane); // el ciclo disponible depende de la temporalidad
+      await refreshDma(pane);
       applyPrevCloseLine(pane);
     });
   });
@@ -2411,7 +2474,7 @@ async function loadMAConfig(pane) {
   const r = await api(`/api/ma-config?symbol=${pane.symbol}`);
   pane.maConfig = r.config;
   renderMAs(pane);
-  applyDailyMaLines(pane);
+  refreshDma(pane);
 }
 
 // ---------------- alarms (solo líneas en el gráfico; el panel de gestión se quitó) ----------------
