@@ -237,15 +237,18 @@ def delete_group(gid):
 
 def add_symbol(ticker, name, group_id):
     with connect() as conn:
-        dup = conn.execute("SELECT id FROM symbols WHERE ticker=? AND group_id=?",
-                           (ticker, group_id)).fetchone()
+        # Un activo existe una sola vez en toda la lista, esté en el grupo que esté:
+        # tenerlo repetido duplicaría sus dibujos y su escaneo de tendencia.
+        dup = conn.execute(
+            "SELECT s.id, g.name gname FROM symbols s JOIN groups g ON g.id=s.group_id "
+            "WHERE s.ticker=?", (ticker,)).fetchone()
         if dup:
-            return dup["id"]
+            return dup["id"], dup["gname"]
         pos = conn.execute("SELECT COALESCE(MAX(position),-1)+1 p FROM symbols WHERE group_id=?",
                            (group_id,)).fetchone()["p"]
         cur = conn.execute("INSERT INTO symbols (ticker, name, group_id, position) VALUES (?, ?, ?, ?)",
                            (ticker, name, group_id, pos))
-        return cur.lastrowid
+        return cur.lastrowid, None
 
 
 def delete_symbol(sid):

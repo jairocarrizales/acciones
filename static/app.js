@@ -2248,6 +2248,49 @@ function rerenderWatchlist() {
   groups.forEach((g) => tree.appendChild(renderGroup(g)));
   renderFavoritesTab(groups);
   renderFavSelect();
+  aplicarFiltroWl(); // el filtro sobrevive a los repintados
+}
+
+// ---- filtro de la lista de seguimiento ----
+// Actúa sobre lo ya pintado, así vale para las tres pestañas sin duplicar lógica.
+
+function aplicarFiltroWl() {
+  const input = document.getElementById("wlFilter");
+  if (!input) return;
+  const q = input.value.trim().toLowerCase();
+  document.getElementById("wlFilterClear").classList.toggle("hidden", !q);
+
+  document.querySelectorAll("#sidebar-left .wl-symbol").forEach((el) => {
+    const ticker = (el.dataset.ticker || "").toLowerCase();
+    const nombre = (el.querySelector(".wls-name")?.textContent || "").toLowerCase();
+    el.classList.toggle("filtrado", !!q && !ticker.includes(q) && !nombre.includes(q));
+  });
+
+  // Un grupo sin coincidencias se oculta entero; con filtro activo se despliega
+  // para que el resultado se vea aunque estuviera plegado.
+  document.querySelectorAll("#watchlistTree .wl-group").forEach((g) => {
+    const visibles = g.querySelectorAll(".wl-symbol:not(.filtrado)").length;
+    g.classList.toggle("filtrado", !!q && !visibles);
+    if (q && visibles) g.classList.remove("collapsed");
+  });
+}
+
+const wlFilterInput = document.getElementById("wlFilter");
+if (wlFilterInput) {
+  wlFilterInput.addEventListener("input", aplicarFiltroWl);
+  wlFilterInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { wlFilterInput.value = ""; aplicarFiltroWl(); }
+    // Enter carga el primer resultado, para no tener que soltar el teclado
+    if (e.key === "Enter") {
+      const primero = document.querySelector("#sidebar-left .wl-symbol:not(.filtrado)");
+      if (primero) selectSymbol(primero.dataset.ticker);
+    }
+  });
+  document.getElementById("wlFilterClear").addEventListener("click", () => {
+    wlFilterInput.value = "";
+    aplicarFiltroWl();
+    wlFilterInput.focus();
+  });
 }
 
 // Selector rápido de favoritos en la barra superior: evita abrir la lista lateral.
@@ -2478,11 +2521,19 @@ document.addEventListener("click", (e) => {
 
 function renderSearchResults(results) {
   if (!results.length) { searchResults.classList.add("hidden"); return; }
-  searchResults.innerHTML = results.map((r) =>
-    `<div class="sr-item" data-ticker="${r.ticker}" data-name="${escapeHtml(r.name)}">
-      <div class="sr-ticker">${r.ticker} <small>${r.exchange || ""}</small></div>
+  // Grupo donde ya vive cada ticker, para marcarlo y no ofrecerlo como nuevo.
+  const enLista = {};
+  (state.watchlistGroups || []).forEach((g) =>
+    g.symbols.forEach((s) => { enLista[s.ticker] = g.name; }));
+
+  searchResults.innerHTML = results.map((r) => {
+    const grupo = enLista[r.ticker];
+    return `<div class="sr-item${grupo ? " ya-esta" : ""}" data-ticker="${r.ticker}" data-name="${escapeHtml(r.name)}">
+      <div class="sr-ticker">${r.ticker} <small>${r.exchange || ""}</small>${
+        grupo ? `<span class="sr-en-lista"><i class="fa-solid fa-check"></i> ${escapeHtml(grupo)}</span>` : ""}</div>
       <div class="sr-name">${escapeHtml(r.name)}</div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
   searchResults.classList.remove("hidden");
   searchResults.querySelectorAll(".sr-item").forEach((item) => {
     item.addEventListener("click", async () => {
@@ -2501,10 +2552,12 @@ function renderSearchResults(results) {
         const actual = groups.find((g) => g.symbols.some((s) => s.ticker === state.symbol));
         groupId = (actual || groups[0]).id;
       }
-      await api("/api/watchlist/symbols", {
+      const r = await api("/api/watchlist/symbols", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticker, name, group_id: groupId }),
       });
+      // el backend no duplica: si ya estaba, avisa en qué grupo vive
+      if (r.duplicado) toast(`${ticker} ya está en el grupo "${r.duplicado}".`);
       await loadWatchlist();
       searchResults.classList.add("hidden");
       searchInput.value = "";

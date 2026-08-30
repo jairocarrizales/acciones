@@ -114,8 +114,9 @@ class SymbolIn(BaseModel):
 
 @app.post("/api/watchlist/symbols")
 def create_symbol(body: SymbolIn):
-    sid = db.add_symbol(body.ticker.strip().upper(), body.name.strip(), body.group_id)
-    return {"id": sid}
+    sid, ya_en = db.add_symbol(body.ticker.strip().upper(), body.name.strip(), body.group_id)
+    # ya_en trae el grupo donde estaba, para poder avisar en vez de duplicar en silencio
+    return {"id": sid, "duplicado": ya_en}
 
 
 @app.delete("/api/watchlist/symbols/{sid}")
