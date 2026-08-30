@@ -178,6 +178,7 @@ function buildPaneDom(letter) {
   div.innerHTML = `
     <div class="pane-toolbar">
       <span class="pane-symbol-label" data-pane="${letter}">—</span>
+      <button class="btn-sync-symbol tool-btn" data-pane="${letter}" title="Poner este activo en todos los paneles"><i class="fa-solid fa-clone"></i></button>
       <div class="intervals" data-pane="${letter}">
         <button data-interval="m2" class="ivl-btn">M2</button>
         <button data-interval="m3" class="ivl-btn">M3</button>
@@ -1677,6 +1678,30 @@ async function selectSymbol(ticker) {
   updateCurrentPrice();
 }
 
+// Copia el activo de un panel a los demás visibles, para comparar el mismo
+// símbolo en varias temporalidades sin teclearlo panel por panel.
+async function sincronizarSimbolo(origen) {
+  const destinos = visiblePanes().filter((p) => p !== origen && p.symbol !== origen.symbol);
+  if (!destinos.length) { toast(`Todos los paneles ya muestran ${origen.symbol}.`); return; }
+  await Promise.all(destinos.map(async (p) => {
+    p.symbol = origen.symbol;
+    localStorage.setItem(`paneSymbol:${p.letter}`, p.symbol);
+    await loadPaneData(p);
+    if (p.candles.length) focusLatest(p);
+  }));
+  toast(`${origen.symbol} en ${destinos.length + 1} paneles.`);
+}
+
+document.querySelectorAll(".btn-sync-symbol").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const pane = panes[btn.dataset.pane];
+    if (!pane.symbol) return;
+    btn.disabled = true;
+    try { await sincronizarSimbolo(pane); }
+    finally { btn.disabled = false; }
+  });
+});
+
 document.querySelectorAll(".btn-refresh-pane").forEach((btn) => {
   btn.addEventListener("click", async () => {
     const pane = panes[btn.dataset.pane];
@@ -1772,6 +1797,8 @@ function applyLayout() {
   chartPanesEl.classList.add(`layout-${layoutMode}`);
   btnSplitView.classList.toggle("active", layoutMode !== "1");
   btnSplitView.title = `Diseño: ${layoutMode} panel(es) — clic para cambiar (1 → 2 → 4)`;
+  // con un solo panel no hay a dónde copiar el activo
+  document.querySelectorAll(".btn-sync-symbol").forEach((b) => b.classList.toggle("hidden", layoutMode === "1"));
   positionSplitters();
   if (!LAYOUT_PANES[layoutMode].includes(state.activePane)) setActivePane("A");
   requestAnimationFrame(() => visiblePanes().forEach((p) => focusLatest(p)));

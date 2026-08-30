@@ -444,6 +444,7 @@ body.splitting.row { cursor: row-resize; }
   display: inline-flex; align-items: center; justify-content: center;
 }
 .btn-toggle-dma { font-size: 10px; font-weight: 700; letter-spacing: 0.2px; }
+.btn-sync-symbol { font-size: 11px; }
 
 /* iconos de dibujo en SVG: heredan el color del botón (blancos en modo oscuro) */
 .tool-svg { width: 14px; height: 14px; display: block; color: inherit; }
