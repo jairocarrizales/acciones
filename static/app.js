@@ -2737,20 +2737,29 @@ async function cargarFed() {
   } catch (_) { /* sin conexión: la barra simplemente no aparece */ }
 }
 
+/** La franja lateral se muestra mientras quede algún panel abierto, y los
+    gráficos se reajustan al espacio que queda. */
+function sincronizarDock() {
+  const abiertos = document.querySelectorAll("#sideDock > aside:not(.hidden)").length;
+  appEl.classList.toggle("with-side", abiertos > 0);
+  requestAnimationFrame(() =>
+    Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
+}
+
 /** Panel lateral con el historial completo de cambios de precio objetivo. */
 const targetsPanel = document.getElementById("sidebar-targets");
 
 function abrirTargets() {
-  appEl.classList.add("with-targets");
   targetsPanel.classList.remove("hidden");
   document.getElementById("btnTargets").classList.add("active");
+  sincronizarDock();
   cargarHistorialTargets();
 }
 
 function cerrarTargets() {
-  appEl.classList.remove("with-targets");
   targetsPanel.classList.add("hidden");
   document.getElementById("btnTargets").classList.remove("active");
+  sincronizarDock();
 }
 
 async function cargarHistorialTargets() {
@@ -2769,20 +2778,33 @@ async function cargarHistorialTargets() {
     list.innerHTML = filas.map((t) => {
       const sube = t.anterior != null && t.valor > t.anterior;
       const pct = t.anterior ? ((t.valor / t.anterior - 1) * 100).toFixed(1) : null;
-      return `<div class="tg-row" data-ticker="${t.symbol}">
+      return `<div class="tg-row" data-ticker="${t.symbol}" data-ts="${t.ts || 0}">
           <div class="tg-top">
             <b>${t.symbol}</b>
             <span class="tg-delta ${sube ? "up" : "down"}">
               $${t.anterior.toFixed(2)} <i class="fa-solid fa-arrow-right"></i> $${t.valor.toFixed(2)}
             </span>
             <span class="tg-pct ${sube ? "up" : "down"}">${sube ? "+" : ""}${pct}%</span>
+            <button class="tg-del" title="Borrar del historial"><i class="fa-solid fa-trash"></i></button>
           </div>
           <div class="tg-sub">detectado ${fechaCorta(t.fecha)}${
             t.updated ? ` · analistas ${fechaCorta(t.updated)}` : ""}</div>
         </div>`;
     }).join("");
-    list.querySelectorAll(".tg-row").forEach((row) =>
-      row.addEventListener("click", () => selectSymbol(row.dataset.ticker)));
+    list.querySelectorAll(".tg-row").forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".tg-del")) return;
+        selectSymbol(row.dataset.ticker);
+      });
+      row.querySelector(".tg-del").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          await api(`/api/target-log/${row.dataset.ts}?symbol=${row.dataset.ticker}`,
+                    { method: "DELETE" });
+          cargarHistorialTargets();
+        } catch (err) { toast("No se pudo borrar: " + err.message); }
+      });
+    });
   } catch (e) {
     st.textContent = "Error al cargar: " + e.message;
   }
@@ -2855,17 +2877,15 @@ const toquesPanel = document.getElementById("sidebar-toques");
 
 function abrirToques() {
   toquesPanel.classList.remove("hidden");
-  appEl.classList.add("with-toques");
   document.getElementById("btnToques").classList.add("active");
-  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
+  sincronizarDock();
   if (!document.getElementById("toquesList").innerHTML) escanearToques();
 }
 
 function cerrarToques() {
   toquesPanel.classList.add("hidden");
-  appEl.classList.remove("with-toques");
   document.getElementById("btnToques").classList.remove("active");
-  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
+  sincronizarDock();
 }
 
 const TOQ_TFS = ["M15", "1H", "D1"];
@@ -2947,24 +2967,23 @@ let rangoKind = "call";
 
 function openRangosPanel() {
   rangosPanel.classList.remove("hidden");
-  appEl.classList.add("with-rangos");
   if (localStorage.getItem("rangosWide") === "1") {
     appEl.classList.add("rangos-wide");
     const i = document.querySelector("#btnExpandRangos i");
     if (i) i.className = "fa-solid fa-down-left-and-up-right-to-center";
   }
   document.getElementById("btnRangos").classList.add("active");
+  sincronizarDock();
   fillRangoSymbols();
   loadRangoCfg();
   loadRangosHist();
-  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
 }
 
 function closeRangosPanel() {
   rangosPanel.classList.add("hidden");
-  appEl.classList.remove("with-rangos", "rangos-wide");
+  appEl.classList.remove("rangos-wide");
   document.getElementById("btnRangos").classList.remove("active");
-  requestAnimationFrame(() => Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
+  sincronizarDock();
 }
 
 // El desplegable se llena con la watchlist; se preselecciona el símbolo del panel enfocado.

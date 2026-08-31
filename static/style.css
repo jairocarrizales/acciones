@@ -144,12 +144,7 @@ input, select, textarea {
 .mapa-menu button:hover { background: var(--hover); }
 
 /* panel del historial de precios objetivo (derecha) */
-#app.with-targets { grid-template-columns: 260px 1fr 300px; grid-template-areas: "top top top" "left main targets"; }
-#app.with-targets.collapse-left { grid-template-columns: 42px 1fr 300px; }
-#sidebar-targets {
-  grid-area: targets; background: var(--bg-panel); border-left: 1px solid var(--border);
-  overflow-y: auto; overflow-x: hidden;
-}
+#sidebar-targets { background: var(--bg-panel); }
 #sidebar-targets.hidden { display: none !important; }
 #targetsList { padding: 0 8px 20px; }
 .tg-row {
@@ -163,15 +158,16 @@ input, select, textarea {
 .tg-delta.up, .tg-pct.up { color: var(--green); }
 .tg-delta.down, .tg-pct.down { color: var(--red); }
 .tg-pct { margin-left: auto; font-size: 11px; font-weight: 700; }
+.tg-del {
+  opacity: 0; border: none; background: none; padding: 2px 4px;
+  font-size: 10px; color: var(--text-dim);
+}
+.tg-row:hover .tg-del { opacity: 1; }
+.tg-del:hover { color: var(--red); background: none; }
 .tg-sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
 
 /* panel del escáner de toques (derecha) */
-#app.with-toques { grid-template-columns: 260px 1fr 320px; grid-template-areas: "top top top" "left main toques"; }
-#app.with-toques.collapse-left { grid-template-columns: 42px 1fr 320px; }
-#sidebar-toques {
-  grid-area: toques; background: var(--bg-panel); border-left: 1px solid var(--border);
-  overflow-y: auto; overflow-x: hidden;
-}
+#sidebar-toques { background: var(--bg-panel); }
 #sidebar-toques.hidden { display: none !important; }
 #btnScanToques.scanning i { animation: spin 0.9s linear infinite; }
 #toquesList { padding: 0 8px 20px; }
@@ -211,16 +207,36 @@ input, select, textarea {
 .toq-cruce.down { background: rgba(239,68,68,0.16); color: var(--red); }
 
 /* panel de rango de precios (derecha) */
-#app.with-rangos { grid-template-columns: 260px 1fr 340px; grid-template-areas: "top top top" "left main rangos"; }
-#app.with-rangos.collapse-left { grid-template-columns: 42px 1fr 340px; }
+/* Paneles laterales derechos: pueden estar varios abiertos a la vez, así que en
+   lugar de una rejilla por panel se usa una franja flexible a la derecha. El
+   gráfico conserva siempre su espacio (minmax con mínimo), y los paneles se
+   reparten el resto sin pisarse. */
+#app.with-side {
+  grid-template-columns: 260px minmax(320px, 1fr) auto;
+  grid-template-areas: "top top top" "left main side";
+}
+#app.with-side.collapse-left { grid-template-columns: 42px minmax(320px, 1fr) auto; }
+#sideDock {
+  grid-area: side; display: flex; min-height: 0; overflow: hidden;
+}
+#sideDock > aside {
+  flex: 0 0 auto; width: 320px; min-width: 0; height: 100%;
+  border-left: 1px solid var(--border); overflow-y: auto; overflow-x: hidden;
+}
+/* con varios paneles abiertos se estrechan para que quepan sin tapar el gráfico */
+#sideDock > aside:not(.hidden) ~ aside { width: 300px; }
+@media (max-width: 1500px) { #sideDock > aside { width: 280px; } }
 
 /* modo ancho: el panel ocupa toda la pantalla y las tarjetas van en cuadrícula */
 #app.rangos-wide {
   grid-template-columns: 1fr !important;
-  grid-template-areas: "top" "rangos" !important;
+  grid-template-areas: "top" "side" !important;
 }
 #app.rangos-wide #sidebar-left, #app.rangos-wide #chartArea { display: none; }
-#app.rangos-wide #sidebar-rangos { border-left: none; width: 100%; }
+/* en modo ancho el panel de rangos ocupa la franja entera */
+#app.rangos-wide #sideDock { width: 100%; }
+#app.rangos-wide #sidebar-rangos { border-left: none; width: 100%; flex: 1 1 auto; }
+#app.rangos-wide #sidebar-targets, #app.rangos-wide #sidebar-toques { display: none; }
 #app.rangos-wide .rangos-form { flex-direction: row; align-items: center; max-width: 900px; }
 #app.rangos-wide .rangos-form select { width: 320px; }
 #app.rangos-wide .rango-kind { width: 200px; }
@@ -240,10 +256,7 @@ input, select, textarea {
   background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
 }
 #app.rangos-wide .rango-hist-item:hover { border-color: var(--accent); background: var(--bg-panel-2); }
-#sidebar-rangos {
-  grid-area: rangos; background: var(--bg-panel); border-left: 1px solid var(--border);
-  overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column;
-}
+#sidebar-rangos { background: var(--bg-panel); display: flex; flex-direction: column; }
 #sidebar-rangos.hidden { display: none !important; }
 .rangos-head {
   display: flex; align-items: center; justify-content: space-between;

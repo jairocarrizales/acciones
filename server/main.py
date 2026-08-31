@@ -770,6 +770,17 @@ def historial_targets(limit: int = 200):
     return {"items": filas[:limit]}
 
 
+@app.delete("/api/target-log/{ts}")
+def borrar_target_log(ts: int, symbol: str):
+    """Elimina un cambio concreto del registro (por su marca de tiempo)."""
+    log = _target_log()
+    quedan = [r for r in log if not (r.get("ts") == ts and r["symbol"] == symbol.upper())]
+    if len(quedan) == len(log):
+        raise HTTPException(404, "Ese cambio ya no está en el registro")
+    db.set_setting(TARGET_LOG_KEY, json.dumps(quedan))
+    return {"ok": True, "restantes": len(quedan)}
+
+
 @app.get("/api/fomc")
 async def proxima_fomc():
     """Fecha de la próxima decisión de tipos del FOMC."""
