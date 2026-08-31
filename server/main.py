@@ -981,11 +981,14 @@ async def escanear_toques():
                         cruces.append({**c, "tf": etiqueta})
 
                 res_h1 = tq.detectar_rebotes(h1) if h1 else None
+                # señal en vivo: está apoyándose otra vez en la MA20 de 1H
+                segundo = tq.segundo_toque(h1) if h1 else None
                 alineados = sum(1 for c in celdas.values() if c["estado"] in ("up", "down"))
                 estados = {c["estado"] for c in celdas.values() if c["estado"] in ("up", "down")}
                 items.append({
                     "symbol": t,
                     "celdas": celdas,
+                    "segundo": segundo,
                     "toques": res_h1,
                     "cruces": cruces,
                     "alineados": alineados,
@@ -1013,7 +1016,12 @@ async def escanear_toques():
                 mejor = rank
         return mejor or (9999, 9, 0)
 
-    items.sort(key=lambda x: (frescura(x), -x["alineados"]))
+    items.sort(key=lambda x: (
+        0 if x.get("segundo") else 1,                     # tocando ahora, arriba
+        (x.get("segundo") or {}).get("velas_atras", 99),  # el más fresco primero
+        frescura(x),
+        -x["alineados"],
+    ))
     return {"running": False, "items": items, "status": dict(_toques_state)}
 
 
