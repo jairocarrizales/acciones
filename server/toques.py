@@ -205,6 +205,92 @@ def detectar_rebotes(candles):
 detectar_toques = detectar_rebotes
 
 
+# ---- Segundo toque en la MA20 (1H) ----
+# El caso que se busca: la tendencia es alcista, el precio ya rebotó en la MA20
+# sin perderla, y AHORA vuelve a tocarla. Ese segundo apoyo es la entrada.
+
+SEGUNDO_VENTANA = 40   # velas 1H en las que deben caber los dos toques (~1 semana)
+SEGUNDO_FRESCO = 2     # el toque actual no puede tener más de estas velas
+
+
+def segundo_toque(candles, periodo=20):
+    """Detecta que el precio está tocando AHORA la media, habiendo rebotado antes.
+
+    Devuelve None si no está en esa situación. Si lo está, informa de cuántos
+    apoyos previos confirmados hay y hace cuánto fue el anterior.
+    """
+    n = len(candles)
+    if n < 210:
+        return None
+    ma = _medias(candles)
+    vals = ma[periodo]
+
+    # 1) ¿la vela actual (o la anterior) está tocando la media, respetándola?
+    tocando = None
+    for i in range(n - 1, max(n - 2 - SEGUNDO_FRESCO, 200), -1):
+        v = vals[i]
+        if v is None:
+            continue
+        orden = _orden(ma, i, True)
+        alcista = orden is not None
+        if not alcista:
+            orden = _orden(ma, i, False)
+            if orden is None:
+                continue
+        c = candles[i]
+        if not _toca(c, v, alcista):
+            continue
+        # el cierre no puede perder la media: en compra, por encima
+        if alcista and c["close"] <= v:
+            continue
+        if not alcista and c["close"] >= v:
+            continue
+        tocando = {"i": i, "alcista": alcista, "orden": orden, "valor": v}
+        break
+    if tocando is None:
+        return None
+
+    # 2) apoyos anteriores ya confirmados en la misma media y misma dirección
+    previos = []
+    desde = max(200, tocando["i"] - SEGUNDO_VENTANA)
+    for i in range(desde, tocando["i"]):
+        v = vals[i]
+        if v is None:
+            continue
+        orden = _orden(ma, i, tocando["alcista"])
+        if orden is None:
+            continue
+        c = candles[i]
+        if not _toca(c, v, tocando["alcista"]):
+            continue
+        if tocando["alcista"] and c["close"] <= v:
+            continue
+        if not tocando["alcista"] and c["close"] >= v:
+            continue
+        if not _venia_separado(candles, vals, i, tocando["alcista"]):
+            continue
+        alej = _impulso(candles, vals, i, tocando["alcista"])
+        if alej is None or alej < IMPULSE_MIN_PCT:
+            continue
+        previos.append({"velas_atras": n - 1 - i, "impulso_pct": round(alej, 2)})
+
+    previos = _agrupar([{**p, "media": periodo} for p in previos])
+    if not previos:
+        return None   # es el primer toque, todavía no hay secuencia
+
+    return {
+        "media": periodo,
+        "direccion": "alcista" if tocando["alcista"] else "bajista",
+        "orden": tocando["orden"],
+        "precio_ma": round(tocando["valor"], 4),
+        "velas_atras": n - 1 - tocando["i"],
+        # nº de apoyo: con un rebote previo, el actual es el segundo
+        "numero": len(previos) + 1,
+        "previo_velas_atras": min(p["velas_atras"] for p in previos),
+        "time": candles[tocando["i"]]["time"],
+    }
+
+
 def estado_tendencia(candles):
     """Estado de la última vela para la rejilla: 'up', 'down' o 'flat'."""
     if not candles or len(candles) < 210:
