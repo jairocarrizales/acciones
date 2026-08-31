@@ -201,6 +201,18 @@ input, select, textarea {
 .toq-cell.down { background: rgba(239,68,68,0.22); color: var(--red); border-color: rgba(239,68,68,0.4); }
 .toq-cell.flat { background: rgba(140,150,170,0.12); color: var(--text-dim); }
 .toq-cell.nd { background: repeating-linear-gradient(45deg, rgba(140,150,170,0.07) 0 4px, transparent 4px 8px); }
+/* aviso en vivo: el precio se está apoyando otra vez en la MA20 */
+.toq-segundo {
+  margin-top: 5px; padding: 4px 7px; border-radius: 5px; font-size: 10px;
+  display: flex; align-items: center; gap: 5px;
+}
+.toq-segundo i { font-size: 9px; }
+.toq-segundo b { font-size: 11px; }
+.toq-segundo.up { background: rgba(34,197,94,0.16); color: var(--green); }
+.toq-segundo.down { background: rgba(239,68,68,0.16); color: var(--red); }
+.toq-row.senal { background: rgba(59,130,246,0.06); }
+.toq-row.filtrado { display: none; }
+
 .toq-cruces { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .toq-cruce { font-size: 9px; padding: 1px 6px; border-radius: 8px; background: rgba(140,150,170,0.16); color: var(--text-dim); }
 .toq-cruce.up { background: rgba(34,197,94,0.16); color: var(--green); }

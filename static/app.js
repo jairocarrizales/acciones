@@ -2810,6 +2810,19 @@ async function cargarHistorialTargets() {
   }
 }
 
+const toqFilterInput = document.getElementById("toqFilter");
+if (toqFilterInput) {
+  toqFilterInput.addEventListener("input", aplicarFiltroToq);
+  toqFilterInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { toqFilterInput.value = ""; aplicarFiltroToq(); }
+  });
+  document.getElementById("toqFilterClear").addEventListener("click", () => {
+    toqFilterInput.value = "";
+    aplicarFiltroToq();
+    toqFilterInput.focus();
+  });
+}
+
 document.getElementById("btnTargets").addEventListener("click", () =>
   targetsPanel.classList.contains("hidden") ? abrirTargets() : cerrarTargets());
 document.getElementById("btnCloseTargets").addEventListener("click", cerrarTargets);
@@ -2921,18 +2934,41 @@ function renderToques(items) {
     const cruces = (it.cruces || []).map((c) =>
       `<span class="toq-cruce ${c.direccion === "alcista" ? "up" : "down"}">${c.tf} ${c.par}${c.velas_atras <= 3 ? " ●" : ""}</span>`).join("");
 
+    // señal en vivo: está apoyándose de nuevo en la MA20 de 1H
+    const sg = it.segundo;
+    const aviso = sg
+      ? `<div class="toq-segundo ${sg.direccion === "alcista" ? "up" : "down"}">
+           <i class="fa-solid fa-bullseye"></i>
+           <b>${sg.numero}º toque MA20</b> en 1H ${sg.velas_atras === 0 ? "ahora" : `hace ${sg.velas_atras}`}
+           · anterior hace ${sg.previo_velas_atras}
+         </div>`
+      : "";
+
     return `
-      <div class="toq-row${it.pleno ? " pleno" : ""}" data-ticker="${it.symbol}">
+      <div class="toq-row${it.pleno ? " pleno" : ""}${sg ? " senal" : ""}" data-ticker="${it.symbol}">
         <div class="toq-grid">
           <span class="toq-sym">${it.symbol}${it.pleno ? '<i class="fa-solid fa-star" title="alineada en las 3 temporalidades"></i>' : ""}</span>
           ${celdas}
         </div>
+        ${aviso}
         ${cruces ? `<div class="toq-cruces">${cruces}</div>` : ""}
       </div>`;
   }).join("");
 
   list.querySelectorAll(".toq-row").forEach((r) =>
     r.addEventListener("click", () => selectSymbol(r.dataset.ticker)));
+  aplicarFiltroToq();
+}
+
+/** Filtra las filas del escáner por ticker, sin volver a escanear. */
+function aplicarFiltroToq() {
+  const input = document.getElementById("toqFilter");
+  if (!input) return;
+  const q = input.value.trim().toLowerCase();
+  document.getElementById("toqFilterClear").classList.toggle("hidden", !q);
+  document.querySelectorAll("#toquesList .toq-row").forEach((row) => {
+    row.classList.toggle("filtrado", !!q && !row.dataset.ticker.toLowerCase().includes(q));
+  });
 }
 
 async function escanearToques() {
@@ -2945,9 +2981,8 @@ async function escanearToques() {
     const r = await api("/api/toques");
     renderToques(r.items || []);
     // cuántos han rebotado en las últimas velas: es lo que se mira al abrir
-    const frescos = (r.items || []).filter((i) =>
-      Object.values(i.celdas || {}).some((c) => c.reciente && c.reciente.velas_atras <= 3)).length;
-    st.textContent = `${(r.items || []).length} activos · ${frescos} con rebote reciente · ${r.status?.updated_at || ""}`;
+    const enSenal = (r.items || []).filter((i) => i.segundo).length;
+    st.textContent = `${(r.items || []).length} activos · ${enSenal} apoyándose en la MA20 (1H) · ${r.status?.updated_at || ""}`;
   } catch (e) {
     st.textContent = "Error al escanear: " + e.message;
   } finally {
