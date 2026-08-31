@@ -938,12 +938,20 @@ TOQUES_TFS = (("m15", "M15"), ("1h", "1H"), ("1d", "D1"))
 
 
 @app.get("/api/toques")
-async def escanear_toques():
+async def escanear_toques(solo: str = "", todos: bool = False):
     """Rejilla de tendencia por temporalidad, con los toques a la MA20 y los
     cruces de medias (20/40 y 100/200) de cada activo de la lista."""
     if _toques_state["running"]:
         return {"running": True, "items": [], "status": dict(_toques_state)}
+    # Cada escaneo cuesta 3 llamadas al proveedor por activo, y el plan gratuito
+    # da 800 al día: por defecto se recorren solo los favoritos que envía el
+    # navegador, y con todos=1 se fuerza la lista completa.
     tickers = _watchlist_tickers()
+    if not todos and solo:
+        pedidos = {t.strip().upper() for t in solo.split(",") if t.strip()}
+        elegidos = [t for t in tickers if t in pedidos]
+        if elegidos:
+            tickers = elegidos
     _toques_state.update(running=True, done=0, total=len(tickers))
     items = []
     try:
