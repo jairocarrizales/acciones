@@ -23,6 +23,13 @@ function formatShortDate(dateStr) {
   return `${d} ${MONTHS_ES[m - 1]}`;
 }
 
+/** Fecha ISO (AAAA-MM-DD) al formato dd/mm/aa que se usa en todo el panel. */
+function fechaCorta(iso) {
+  if (!iso) return "";
+  const [a, m, d] = iso.split("-");
+  return `${d}/${m}/${a.slice(2)}`;
+}
+
 document.documentElement.setAttribute("data-theme", state.theme);
 
 // ---------------- helpers ----------------
@@ -2438,8 +2445,8 @@ function renderSymbol(s, showPremarket) {
   const isPastEarnings = next && next.date < todayET;
   const badge = next
     ? (isPastEarnings
-      ? `<span class="wls-earnings past" title="Reportó el ${next.date}${timeLabel ? " — " + timeLabel : ""}"><i class="fa-solid fa-circle-check"></i> ${formatShortDate(next.date)}${timeShort}</span>`
-      : `<span class="wls-earnings ${next.status}" title="Próximo reporte: ${next.date}${timeLabel ? " — " + timeLabel : ""} (${statusLabel})"><i class="fa-solid fa-calendar-days"></i> ${formatShortDate(next.date)}${timeShort}</span>`)
+      ? `<span class="wls-earnings past" title="Reportó el ${fechaCorta(next.date)}${timeLabel ? " — " + timeLabel : ""}"><i class="fa-solid fa-circle-check"></i> ${formatShortDate(next.date)}${timeShort}</span>`
+      : `<span class="wls-earnings ${next.status}" title="Próximo reporte: ${fechaCorta(next.date)}${timeLabel ? " — " + timeLabel : ""} (${statusLabel})"><i class="fa-solid fa-calendar-days"></i> ${formatShortDate(next.date)}${timeShort}</span>`)
     : "";
   const isFav = getLocalFavs().includes(s.ticker);
   el.innerHTML = `
@@ -2723,12 +2730,68 @@ async function cargarFed() {
     const txt = f.toLocaleDateString("es-MX", { day: "numeric", month: "long" });
     const cuando = r.dias === 0 ? "hoy" : r.dias === 1 ? "mañana" : `en ${r.dias} días`;
     box.innerHTML = `<i class="fa-solid fa-landmark"></i> <b>FED</b> ${txt} · ${cuando}`;
-    box.title = `Próxima decisión de tipos del FOMC: ${r.date}`;
+    box.title = `Próxima decisión de tipos del FOMC: ${fechaCorta(r.date)}`;
     // se enciende cuando la reunión está encima
     box.classList.toggle("inminente", r.dias <= 3);
     box.classList.remove("hidden");
   } catch (_) { /* sin conexión: la barra simplemente no aparece */ }
 }
+
+/** Panel lateral con el historial completo de cambios de precio objetivo. */
+const targetsPanel = document.getElementById("sidebar-targets");
+
+function abrirTargets() {
+  appEl.classList.add("with-targets");
+  targetsPanel.classList.remove("hidden");
+  document.getElementById("btnTargets").classList.add("active");
+  cargarHistorialTargets();
+}
+
+function cerrarTargets() {
+  appEl.classList.remove("with-targets");
+  targetsPanel.classList.add("hidden");
+  document.getElementById("btnTargets").classList.remove("active");
+}
+
+async function cargarHistorialTargets() {
+  const list = document.getElementById("targetsList");
+  const st = document.getElementById("targetsStatus");
+  st.textContent = "Cargando…";
+  try {
+    const r = await api("/api/target-log");
+    const filas = r.items || [];
+    if (!filas.length) {
+      st.textContent = "Sin cambios registrados todavía.";
+      list.innerHTML = `<p class="hint" style="padding:0 12px;">Los cambios se registran a medida que los analistas revisan sus objetivos.</p>`;
+      return;
+    }
+    st.textContent = `${filas.length} cambio(s) registrados`;
+    list.innerHTML = filas.map((t) => {
+      const sube = t.anterior != null && t.valor > t.anterior;
+      const pct = t.anterior ? ((t.valor / t.anterior - 1) * 100).toFixed(1) : null;
+      return `<div class="tg-row" data-ticker="${t.symbol}">
+          <div class="tg-top">
+            <b>${t.symbol}</b>
+            <span class="tg-delta ${sube ? "up" : "down"}">
+              $${t.anterior.toFixed(2)} <i class="fa-solid fa-arrow-right"></i> $${t.valor.toFixed(2)}
+            </span>
+            <span class="tg-pct ${sube ? "up" : "down"}">${sube ? "+" : ""}${pct}%</span>
+          </div>
+          <div class="tg-sub">detectado ${fechaCorta(t.fecha)}${
+            t.updated ? ` · analistas ${fechaCorta(t.updated)}` : ""}</div>
+        </div>`;
+    }).join("");
+    list.querySelectorAll(".tg-row").forEach((row) =>
+      row.addEventListener("click", () => selectSymbol(row.dataset.ticker)));
+  } catch (e) {
+    st.textContent = "Error al cargar: " + e.message;
+  }
+}
+
+document.getElementById("btnTargets").addEventListener("click", () =>
+  targetsPanel.classList.contains("hidden") ? abrirTargets() : cerrarTargets());
+document.getElementById("btnCloseTargets").addEventListener("click", cerrarTargets);
+document.getElementById("btnReloadTargets").addEventListener("click", cargarHistorialTargets);
 
 /** Modal de bienvenida con los precios objetivo que cambiaron hace poco. */
 async function mostrarAvisos() {
@@ -2747,7 +2810,7 @@ async function mostrarAvisos() {
            $${t.anterior.toFixed(2)} <i class="fa-solid fa-arrow-right"></i> $${t.valor.toFixed(2)}</span>`;
       return `<div class="aviso-row" data-ticker="${t.symbol}">
           <b>${t.symbol}</b> ${flecha}
-          <span class="aviso-fecha">${t.fecha}</span>
+          <span class="aviso-fecha">${fechaCorta(t.fecha)}</span>
         </div>`;
     }).join("");
 

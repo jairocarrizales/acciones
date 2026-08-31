@@ -685,7 +685,16 @@ async def get_news(symbol: str, refresh: bool = False):
 
 # Histórico del precio objetivo por símbolo, para detectar cambios entre sesiones.
 TARGET_HIST_KEY = "target_hist"
+TARGET_LOG_KEY = "target_log"   # registro acumulado de todos los cambios
+TARGET_LOG_MAX = 400            # se conservan los más recientes
 AVISO_DIAS = 14  # antigüedad máxima de un cambio para seguir avisando
+
+
+def _target_log() -> list:
+    try:
+        return json.loads(db.get_setting(TARGET_LOG_KEY) or "[]")
+    except Exception:
+        return []
 
 
 def _target_hist() -> dict:
@@ -706,6 +715,13 @@ def _guardar_target(symbol: str, data: dict | None):
     if previo and previo.get("valor") is not None and abs(previo["valor"] - nuevo) > 0.005:
         hist[symbol] = {"valor": nuevo, "anterior": previo["valor"],
                         "cambio": hoy, "updated": data.get("updated")}
+        # el histórico guarda solo el último cambio de cada activo; el registro
+        # acumula todos para poder consultarlos después
+        log = _target_log()
+        log.append({"symbol": symbol, "valor": nuevo, "anterior": previo["valor"],
+                    "fecha": hoy, "updated": data.get("updated"),
+                    "ts": int(time.time())})
+        db.set_setting(TARGET_LOG_KEY, json.dumps(log[-TARGET_LOG_MAX:]))
     elif not previo:
         hist[symbol] = {"valor": nuevo, "anterior": None, "cambio": None,
                         "updated": data.get("updated")}
@@ -742,6 +758,16 @@ async def avisos_inicio():
     ]
     cambios.sort(key=lambda c: c["fecha"], reverse=True)
     return {"targets": cambios}
+
+
+@app.get("/api/target-log")
+def historial_targets(limit: int = 200):
+    """Registro de todos los cambios de precio objetivo detectados."""
+    log = _target_log()
+    tickers = set(_watchlist_tickers())
+    filas = [r for r in log if r["symbol"] in tickers]
+    filas.sort(key=lambda r: (r.get("ts") or 0, r["fecha"]), reverse=True)
+    return {"items": filas[:limit]}
 
 
 @app.get("/api/fomc")

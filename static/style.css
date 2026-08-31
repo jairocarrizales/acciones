@@ -143,6 +143,28 @@ input, select, textarea {
 }
 .mapa-menu button:hover { background: var(--hover); }
 
+/* panel del historial de precios objetivo (derecha) */
+#app.with-targets { grid-template-columns: 260px 1fr 300px; grid-template-areas: "top top top" "left main targets"; }
+#app.with-targets.collapse-left { grid-template-columns: 42px 1fr 300px; }
+#sidebar-targets {
+  grid-area: targets; background: var(--bg-panel); border-left: 1px solid var(--border);
+  overflow-y: auto; overflow-x: hidden;
+}
+#sidebar-targets.hidden { display: none !important; }
+#targetsList { padding: 0 8px 20px; }
+.tg-row {
+  padding: 8px; border-radius: 6px; cursor: pointer;
+  border-bottom: 1px solid rgba(140,150,170,0.10);
+}
+.tg-row:hover { background: var(--hover); }
+.tg-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.tg-delta { font-size: 11px; }
+.tg-delta i { font-size: 8px; opacity: .7; margin: 0 2px; }
+.tg-delta.up, .tg-pct.up { color: var(--green); }
+.tg-delta.down, .tg-pct.down { color: var(--red); }
+.tg-pct { margin-left: auto; font-size: 11px; font-weight: 700; }
+.tg-sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+
 /* panel del escáner de toques (derecha) */
 #app.with-toques { grid-template-columns: 260px 1fr 320px; grid-template-areas: "top top top" "left main toques"; }
 #app.with-toques.collapse-left { grid-template-columns: 42px 1fr 320px; }
@@ -497,6 +519,7 @@ body.splitting.row { cursor: row-resize; }
 #btnFullscreen.active,
 #btnRangos.active,
 #btnToques.active,
+#btnTargets.active,
 #btnToggleSidebar.active,
 .tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
