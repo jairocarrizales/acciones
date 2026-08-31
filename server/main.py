@@ -17,6 +17,7 @@ from . import rangos
 from . import saltos
 from . import targetprice as tp
 from . import fomc
+from . import fmp
 from . import toques as tq
 from . import trends
 from . import twelvedata as td
@@ -45,16 +46,20 @@ async def no_cache_static(request, call_next):
 
 class ApiKeyIn(BaseModel):
     api_key: str
+    fmp_api_key: str | None = None  # proveedor de respaldo
 
 
 @app.get("/api/settings")
 def get_settings():
-    return {"api_key": db.get_setting("api_key", "")}
+    return {"api_key": db.get_setting("api_key", ""),
+            "fmp_api_key": db.get_setting("fmp_api_key", "")}
 
 
 @app.post("/api/settings/api-key")
 def set_api_key(body: ApiKeyIn):
     db.set_setting("api_key", body.api_key.strip())
+    if body.fmp_api_key is not None:
+        db.set_setting("fmp_api_key", body.fmp_api_key.strip())
     return {"ok": True}
 
 
@@ -265,9 +270,22 @@ async def _ensure_candles_raw(symbol: str, interval: str, refresh: bool = False)
                 db.upsert_candles(symbol, interval, rows)
             db.set_fetch_time(symbol, interval, now)
         except td.TwelveDataError as e:
-            existing = db.get_candles(symbol, interval)
-            if not existing:
-                raise HTTPException(502, str(e))
+            # Twelve Data caído o sin cuota: FMP cubre el diario, que es lo que
+            # su plan permite. El intradía se queda con lo que haya en caché.
+            rescatado = False
+            if interval in fmp.SOPORTA:
+                try:
+                    rows = await fmp.fetch_daily(fmp.api_key(db), symbol)
+                    if rows:
+                        db.upsert_candles(symbol, interval, rows)
+                        db.set_fetch_time(symbol, interval, now)
+                        rescatado = True
+                except Exception as fe:
+                    print(f"[fmp] respaldo falló para {symbol}/{interval}: {fe}")
+            if not rescatado:
+                existing = db.get_candles(symbol, interval)
+                if not existing:
+                    raise HTTPException(502, str(e))
 
     return db.get_candles(symbol, interval)
 
@@ -637,6 +655,13 @@ async def get_price(symbol: str):
     try:
         prices = await td.fetch_prices(_api_key(), [symbol.upper()])
     except td.TwelveDataError as e:
+        # sin cuota en Twelve Data, FMP sí sirve la cotización en vivo
+        try:
+            q = await fmp.fetch_quote(fmp.api_key(db), symbol.upper())
+            if q and q.get("price") is not None:
+                return {"symbol": symbol.upper(), "price": q["price"], "fuente": "fmp"}
+        except Exception:
+            pass
         raise HTTPException(502, str(e))
     if symbol.upper() not in prices:
         raise HTTPException(502, "Sin precio disponible")
