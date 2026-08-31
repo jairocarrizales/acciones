@@ -2892,7 +2892,7 @@ function abrirToques() {
   toquesPanel.classList.remove("hidden");
   document.getElementById("btnToques").classList.add("active");
   sincronizarDock();
-  if (!document.getElementById("toquesList").innerHTML) escanearToques();
+  if (!document.getElementById("toquesList").innerHTML) escanearToques(false);
 }
 
 function cerrarToques() {
@@ -2971,14 +2971,19 @@ function aplicarFiltroToq() {
   });
 }
 
-async function escanearToques() {
+async function escanearToques(todos = false) {
   const btn = document.getElementById("btnScanToques");
   const st = document.getElementById("toquesStatus");
   btn.disabled = true;
   btn.classList.add("scanning");
-  st.textContent = "Escaneando toda la lista de seguimiento…";
+  // Cada activo cuesta 3 llamadas al proveedor: por defecto solo los favoritos,
+  // que es lo que se sigue de cerca, y el escaneo completo bajo petición.
+  const favs = getLocalFavs();
+  const q = todos || !favs.length ? "?todos=1" : `?solo=${encodeURIComponent(favs.join(","))}`;
+  st.textContent = todos || !favs.length
+    ? "Escaneando toda la lista…" : `Escaneando ${favs.length} favoritos…`;
   try {
-    const r = await api("/api/toques");
+    const r = await api("/api/toques" + q);
     renderToques(r.items || []);
     // cuántos han rebotado en las últimas velas: es lo que se mira al abrir
     const enSenal = (r.items || []).filter((i) => i.segundo).length;
@@ -2995,7 +3000,9 @@ document.getElementById("btnToques").addEventListener("click", () => {
   if (toquesPanel.classList.contains("hidden")) abrirToques(); else cerrarToques();
 });
 document.getElementById("btnCloseToques").addEventListener("click", cerrarToques);
-document.getElementById("btnScanToques").addEventListener("click", escanearToques);
+// sin el envoltorio, el evento del clic llegaría como argumento "todos"
+document.getElementById("btnScanToques").addEventListener("click", () => escanearToques(false));
+document.getElementById("btnScanToquesAll").addEventListener("click", () => escanearToques(true));
 
 const rangosPanel = document.getElementById("sidebar-rangos");
 let rangoKind = "call";
