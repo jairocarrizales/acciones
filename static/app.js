@@ -304,7 +304,7 @@ function createPane(letter, defaultInterval) {
     dmaRef: {}, // temporalidad de referencia -> velas ya descargadas
     extVisible: false, // sesión extendida (pre/post): retirada de la barra por no ser útil en valores poco líquidos
     extPrimitive: null,
-    targetPriceLine: null, alarmPriceLines: [], sessionPrimitive: null, prevClose: null,
+    targetPriceLine: null, alarmPriceLines: [], sessionPrimitive: null, prevClose: null, weekClose: null,
     interval: defaultInterval, candles: [],
     maConfig: [], dailyCandles: [], targetPrice: null, alarms: [], earnings: [],
     trendPrimitives: [], drawings: [], selectedDrawingId: null,
@@ -506,6 +506,10 @@ async function loadDailyReference(pane) {
     pane.dailyCandles = [];
   }
   applyDailyMaLines(pane);
+  // corre en paralelo con loadPrevClose: se recalcula aquí porque el cierre
+  // semanal sale justo de estas velas diarias
+  calcularCierreSemanal(pane);
+  applyPrevCloseLine(pane);
 }
 
 /** Descarga la referencia H1/M15 la primera vez que se pide para este símbolo. */
@@ -1985,7 +1989,21 @@ async function loadPrevClose(pane) {
   } catch (_) {
     pane.prevClose = null;
   }
+  calcularCierreSemanal(pane);
   applyPrevCloseLine(pane);
+}
+
+/** Cierre del último viernes, tomado de las velas diarias ya cargadas.
+ *  Sirve de referencia al abrir la semana; el resto de días no se pinta. */
+function calcularCierreSemanal(pane) {
+  pane.weekClose = null;
+  const d = pane.dailyCandles;
+  if (!d || !d.length) return;
+  // se recorre hacia atrás hasta dar con el viernes más reciente ya cerrado
+  for (let i = d.length - 1; i >= 0 && i > d.length - 12; i--) {
+    const dia = new Date(d[i].time * 1000).getUTCDay();
+    if (dia === 5) { pane.weekClose = d[i].close; return; }
+  }
 }
 
 // El cierre anterior se pinta SOLO sobre el día actual (desde la primera vela de hoy
@@ -1997,6 +2015,11 @@ function applyPrevCloseLine(pane) {
     pane.candleSeries.attachPrimitive(pane.sessionPrimitive);
   }
   pane.sessionPrimitive.requestUpdate();
+}
+
+/** ¿El epoch (hora de mercado) cae en lunes? */
+function esLunes(t) {
+  return new Date(t * 1000).getUTCDay() === 1;
 }
 
 function dayKeyOf(t) {
@@ -2038,20 +2061,38 @@ class SessionMarksPrimitive {
         ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, scope.bitmapSize.height); ctx.stroke();
       }
 
-      // 2) cierre anterior: línea punteada solo desde la primera vela del último día
+      // 2) Referencias de cierre, dibujadas desde la primera vela del día en curso
+      // hacia la derecha (como TC2000, no cruzan todo el gráfico).
+      const inicioDia = (idx) => {
+        const dia = dayKeyOf(c[idx].time);
+        let i = idx;
+        while (i > 0 && dayKeyOf(c[i - 1].time) === dia) i--;
+        return i;
+      };
+      const pintarNivel = (precio, desdeIdx, color, guion) => {
+        const x0 = ts.timeToCoordinate(c[desdeIdx].time);
+        const y = pane.candleSeries.priceToCoordinate(precio);
+        if (x0 == null || y == null) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1 * hpr;
+        ctx.setLineDash(guion.map((n) => n * hpr));
+        ctx.beginPath();
+        ctx.moveTo(x0 * hpr - bs / 2, Math.round(y * vpr) + 0.5);
+        ctx.lineTo(scope.bitmapSize.width, Math.round(y * vpr) + 0.5);
+        ctx.stroke();
+      };
+
+      const idxHoy = inicioDia(c.length - 1);
+
+      // cierre de la sesión anterior: se muestra todos los días
       if (pane.prevClose) {
-        const lastDay = dayKeyOf(c[c.length - 1].time);
-        let firstIdx = c.length - 1;
-        while (firstIdx > 0 && dayKeyOf(c[firstIdx - 1].time) === lastDay) firstIdx--;
-        const x0 = ts.timeToCoordinate(c[firstIdx].time);
-        const y = pane.candleSeries.priceToCoordinate(pane.prevClose);
-        if (x0 != null && y != null) {
-          const px0 = x0 * hpr - bs / 2, py = Math.round(y * vpr) + 0.5;
-          ctx.strokeStyle = dark ? "#e6e6e6" : "#333333";
-          ctx.lineWidth = 1 * hpr;
-          ctx.setLineDash([8 * hpr, 6 * hpr]);
-          ctx.beginPath(); ctx.moveTo(px0, py); ctx.lineTo(scope.bitmapSize.width, py); ctx.stroke();
-        }
+        pintarNivel(pane.prevClose, idxHoy, "#e6e6e6", [8, 6]);
+      }
+
+      // cierre del viernes: solo el lunes, para arrancar la semana con esa
+      // referencia; de martes en adelante estorba y se deja de pintar
+      if (pane.weekClose && esLunes(c[c.length - 1].time)) {
+        pintarNivel(pane.weekClose, idxHoy, "#facc15", [2, 4]);
       }
       ctx.restore();
     });
