@@ -506,11 +506,6 @@ async function loadDailyReference(pane) {
     pane.dailyCandles = [];
   }
   applyDailyMaLines(pane);
-  // corre en paralelo con loadPrevClose: se recalcula aquí porque el cierre
-  // semanal sale justo de estas velas diarias
-  calcularCierresSemana(pane);
-  ajustarCierreAnterior(pane);
-  applyPrevCloseLine(pane);
 }
 
 /** Descarga la referencia H1/M15 la primera vez que se pide para este símbolo. */
@@ -1990,23 +1985,18 @@ async function loadPrevClose(pane) {
   } catch (_) {
     pane.prevClose = null;
   }
-  calcularCierresSemana(pane);
-  ajustarCierreAnterior(pane);
   applyPrevCloseLine(pane);
 }
 
-/** El cierre anterior es el de la última sesión cerrada.
+/** El cierre de cada día sale de la ÚLTIMA VELA de ese día en el propio gráfico.
  *
- *  Yahoo entrega en previousClose la sesión ANTERIOR a la última cerrada: con el
- *  mercado aún sin abrir eso deja la línea un día atrasada. Mientras hoy no
- *  cotice, manda el cierre de la última vela diaria. */
-function ajustarCierreAnterior(pane) {
-  const d = pane.dailyCandles;
-  if (!d || !d.length) return;
-  const ultima = d[d.length - 1];
-  const hoyNY = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const claveHoy = hoyNY.getFullYear() * 10000 + (hoyNY.getMonth() + 1) * 100 + hoyNY.getDate();
-  if (dayKeyOf(ultima.time) < claveHoy) pane.prevClose = ultima.close;
+ *  Es la única forma de que la línea caiga exactamente donde se ve cerrar la
+ *  vela: cualquier fuente externa puede ir desfasada respecto a las velas que
+ *  se están dibujando. Devuelve un mapa día -> cierre. */
+function cierresPorDia(pane) {
+  const mapa = new Map();
+  for (const vela of pane.candles) mapa.set(dayKeyOf(vela.time), vela.close);
+  return mapa;
 }
 
 /** Cierres de los días ya cerrados de la semana en curso.
@@ -2017,33 +2007,31 @@ function ajustarCierreAnterior(pane) {
  *  su propia línea blanca. */
 function calcularCierresSemana(pane) {
   pane.weekCloses = [];
-  const d = pane.dailyCandles;
-  if (!d || !d.length) return;
+  pane.prevClose = null;
+  if (!pane.candles.length) return;
 
-  // La semana se calcula sobre la fecha REAL de mercado, no sobre la última
-  // vela: si los datos van con retraso, esa vela es de días atrás y la semana
-  // saldría desplazada.
-  const hoyNY = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const diaSemana = (hoyNY.getDay() + 6) % 7; // 0 = lunes
-  const lunes = new Date(hoyNY);
-  lunes.setDate(hoyNY.getDate() - diaSemana);
-  lunes.setHours(0, 0, 0, 0);
+  const cierres = [...cierresPorDia(pane).entries()].sort((a, b) => a[0] - b[0]);
+  if (cierres.length < 2) return;
+
+  // El último día del gráfico es la sesión en curso (o la más reciente): su
+  // cierre aún puede moverse, así que no es referencia. El anterior sí.
+  const [claveActual] = cierres[cierres.length - 1];
+  const [, cierreAnterior] = cierres[cierres.length - 2];
+  pane.prevClose = cierreAnterior;
+
+  // lunes de la semana a la que pertenece el día en curso
+  const d = new Date(Math.floor(claveActual / 10000),
+                     Math.floor(claveActual / 100) % 100 - 1, claveActual % 100);
+  const lunes = new Date(d);
+  lunes.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   const claveLunes = lunes.getFullYear() * 10000 + (lunes.getMonth() + 1) * 100 + lunes.getDate();
-  const claveHoy = hoyNY.getFullYear() * 10000 + (hoyNY.getMonth() + 1) * 100 + hoyNY.getDate();
 
-  // la última sesión cerrada ya tiene su propia línea blanca: no se repite
-  const ultimaCerrada = d.length ? dayKeyOf(d[d.length - 1].time) : 0;
-
-  for (const vela of d) {
-    const k = dayKeyOf(vela.time);
-    // de esta semana, y solo días ya cerrados (hoy no cuenta: aún cotiza)
-    if (k < claveLunes || k >= claveHoy) continue;
-    if (k === ultimaCerrada && ultimaCerrada < claveHoy) continue;
-    const dt = new Date(vela.time * 1000);
-    pane.weekCloses.push({
-      close: vela.close,
-      dia: ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"][dt.getUTCDay()],
-    });
+  const DIAS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+  // se omiten el día en curso y el anterior: ese ya lo pinta la línea blanca
+  for (const [clave, close] of cierres.slice(0, -2)) {
+    if (clave < claveLunes) continue;
+    const f = new Date(Math.floor(clave / 10000), Math.floor(clave / 100) % 100 - 1, clave % 100);
+    pane.weekCloses.push({ close, dia: DIAS[f.getDay()] });
   }
 }
 
@@ -2051,6 +2039,10 @@ function calcularCierresSemana(pane) {
 // hacia la derecha), y cada cambio de día se marca con una línea vertical: ambas cosas
 // tal como las muestra TC2000. Todo en un primitive de canvas por panel.
 function applyPrevCloseLine(pane) {
+  // los cierres salen de las velas del gráfico, así que se recalculan aquí:
+  // este punto ya se invoca al cambiar de símbolo, de temporalidad y en cada
+  // refresco en vivo
+  calcularCierresSemana(pane);
   if (!pane.sessionPrimitive) {
     pane.sessionPrimitive = new SessionMarksPrimitive(pane);
     pane.candleSeries.attachPrimitive(pane.sessionPrimitive);
