@@ -18,6 +18,40 @@ const state = {
 };
 
 const MONTHS_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+// Conjuntos de medias entre los que se puede alternar. El primero es el que
+// venía de fábrica y sigue siendo el que se aplica mientras no se elija otro.
+// La elección vive en el navegador, así cada usuario de la red tiene la suya.
+const MA_SETS = {
+  actual: {
+    nombre: "20 · 40 · 100 · 200",
+    detalle: "simples (las de siempre)",
+    medias: [
+      { enabled: true, type: "SMA", period: 20, color: "#facc15", width: 1 },
+      { enabled: true, type: "SMA", period: 40, color: "#ef4444", width: 1 },
+      { enabled: true, type: "SMA", period: 100, color: "#39ff14", width: 3 },
+      { enabled: true, type: "SMA", period: 200, color: "#a855f7", width: 3 },
+    ],
+  },
+  ema: {
+    nombre: "30 · 50 · 100",
+    detalle: "exponenciales",
+    medias: [
+      { enabled: true, type: "EMA", period: 30, color: "#facc15", width: 1 },
+      { enabled: true, type: "EMA", period: 50, color: "#ef4444", width: 1 },
+      { enabled: true, type: "EMA", period: 100, color: "#39ff14", width: 3 },
+    ],
+  },
+  sma: {
+    nombre: "30 · 50 · 100",
+    detalle: "simples",
+    medias: [
+      { enabled: true, type: "SMA", period: 30, color: "#facc15", width: 1 },
+      { enabled: true, type: "SMA", period: 50, color: "#ef4444", width: 1 },
+      { enabled: true, type: "SMA", period: 100, color: "#39ff14", width: 3 },
+    ],
+  },
+};
+
 function formatShortDate(dateStr) {
   const [, m, d] = dateStr.split("-").map(Number);
   return `${d} ${MONTHS_ES[m - 1]}`;
@@ -212,6 +246,13 @@ function buildPaneDom(letter) {
       </div>
       <span class="spacer"></span>
       <button class="btn-toggle-ma tool-btn" data-pane="${letter}" title="Mostrar/ocultar medias móviles"><i class="fa-solid fa-wave-square"></i></button>
+      <div class="ma-set-wrap" data-pane="${letter}">
+        <button class="btn-ma-set tool-btn" data-pane="${letter}" title="Conjunto de medias"><i class="fa-solid fa-layer-group"></i></button>
+        <div class="ma-set-menu hidden">
+          ${Object.entries(MA_SETS).map(([k, v]) =>
+            `<button data-set="${k}"><b>${v.nombre}</b><span>${v.detalle}</span></button>`).join("")}
+        </div>
+      </div>
       <button class="btn-toggle-dma tool-btn" data-pane="${letter}" title="Medias fijas de una temporalidad mayor">D1</button>
       <button class="btn-toggle-bb tool-btn active" data-pane="${letter}" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
       <button class="btn-toggle-stoch tool-btn" data-pane="${letter}" title="Panel inferior: Worden Stochastics 12 %K 3 + Volumen"><i class="fa-solid fa-chart-column"></i></button>
@@ -392,7 +433,9 @@ const DMA_ETIQUETA = { "1d": "D1", "1h": "H1", m15: "M15" };
 const DMA_TRAMO = { "1h": 3600, m15: 900 };
 
 function dmaCiclo(pane) {
-  return ["m5", "m3", "m2"].includes(pane.interval) ? DMA_CICLO : DMA_CICLO_CORTO;
+  // Por debajo de M15 las medias diarias quedan lejos del precio, así que el
+  // ciclo ofrece además las referencias de H1 y M15.
+  return ["m10", "m5", "m3", "m2"].includes(pane.interval) ? DMA_CICLO : DMA_CICLO_CORTO;
 }
 
 /** Modo válido en esta temporalidad: fuera de M5/M2 solo existe D1. */
@@ -1749,6 +1792,38 @@ document.querySelectorAll(".btn-toggle-stoch").forEach((btn) => {
 
 // Niveles de las MAs diarias (líneas punteadas D1) en paneles intradía: toggle propio,
 // independiente del botón de MAs de la temporalidad, con preferencia local por panel.
+// Menú del conjunto de medias: un clic abre, otro elige.
+document.querySelectorAll(".ma-set-wrap").forEach((wrap) => {
+  const pane = panes[wrap.dataset.pane];
+  const btn = wrap.querySelector(".btn-ma-set");
+  const menu = wrap.querySelector(".ma-set-menu");
+  pintarBotonMaSet(pane);
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll(".ma-set-menu").forEach((m) => {
+      if (m !== menu) m.classList.add("hidden");
+    });
+    menu.querySelectorAll("button").forEach((b) =>
+      b.classList.toggle("activo", b.dataset.set === maSetActivo(pane)));
+    menu.classList.toggle("hidden");
+  });
+
+  menu.querySelectorAll("button").forEach((b) => {
+    b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      menu.classList.add("hidden");
+      await aplicarMaSet(pane, b.dataset.set);
+    });
+  });
+});
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".ma-set-wrap")) {
+    document.querySelectorAll(".ma-set-menu").forEach((m) => m.classList.add("hidden"));
+  }
+});
+
 document.querySelectorAll(".btn-toggle-dma").forEach((btn) => {
   const pane = panes[btn.dataset.pane];
   pintarBotonDma(pane);
@@ -2575,11 +2650,38 @@ function renderSearchResults(results) {
 
 // ---------------- MA config ----------------
 
+function maSetActivo(pane) {
+  const k = localStorage.getItem(`maSet:${pane.letter}`);
+  return MA_SETS[k] ? k : "actual";
+}
+
 async function loadMAConfig(pane) {
-  const r = await api(`/api/ma-config?symbol=${pane.symbol}`);
-  pane.maConfig = r.config;
+  const set = maSetActivo(pane);
+  if (set === "actual") {
+    // el conjunto de fábrica sigue viniendo del servidor, que permite
+    // ajustarlo por símbolo desde la configuración existente
+    const r = await api(`/api/ma-config?symbol=${pane.symbol}`);
+    pane.maConfig = r.config;
+  } else {
+    pane.maConfig = MA_SETS[set].medias.map((m) => ({ ...m }));
+  }
   renderMAs(pane);
   refreshDma(pane);
+  pintarBotonMaSet(pane);
+}
+
+/** Aplica un conjunto de medias al panel y lo recuerda. */
+async function aplicarMaSet(pane, clave) {
+  localStorage.setItem(`maSet:${pane.letter}`, clave);
+  await loadMAConfig(pane);
+}
+
+function pintarBotonMaSet(pane) {
+  const btn = document.querySelector(`.btn-ma-set[data-pane="${pane.letter}"]`);
+  if (!btn) return;
+  const set = maSetActivo(pane);
+  btn.classList.toggle("active", set !== "actual");
+  btn.title = `Medias: ${MA_SETS[set].nombre} ${MA_SETS[set].detalle}`;
 }
 
 // ---------------- alarms (solo líneas en el gráfico; el panel de gestión se quitó) ----------------
@@ -2893,14 +2995,14 @@ const toquesPanel = document.getElementById("sidebar-toques");
 
 function abrirToques() {
   toquesPanel.classList.remove("hidden");
-  document.getElementById("btnToques").classList.add("active");
+  document.getElementById("btnToques")?.classList.add("active");
   sincronizarDock();
   if (!document.getElementById("toquesList").innerHTML) escanearToques(false);
 }
 
 function cerrarToques() {
   toquesPanel.classList.add("hidden");
-  document.getElementById("btnToques").classList.remove("active");
+  document.getElementById("btnToques")?.classList.remove("active");
   sincronizarDock();
 }
 
@@ -2999,7 +3101,9 @@ async function escanearToques(todos = false) {
   }
 }
 
-document.getElementById("btnToques").addEventListener("click", () => {
+// El botón del escáner se retiró de la barra superior; el panel se conserva
+// intacto y volverá a tener lanzador cuando se decida reactivarlo.
+document.getElementById("btnToques")?.addEventListener("click", () => {
   if (toquesPanel.classList.contains("hidden")) abrirToques(); else cerrarToques();
 });
 document.getElementById("btnCloseToques").addEventListener("click", cerrarToques);
