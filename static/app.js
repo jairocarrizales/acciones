@@ -2011,15 +2011,21 @@ function calcularCierresSemana(pane) {
   if (!pane.candles.length) return;
 
   const cierres = [...cierresPorDia(pane).entries()].sort((a, b) => a[0] - b[0]);
-  if (cierres.length < 2) return;
+  if (!cierres.length) return;
 
-  // El último día del gráfico es la sesión en curso (o la más reciente): su
-  // cierre aún puede moverse, así que no es referencia. El anterior sí.
-  const [claveActual] = cierres[cierres.length - 1];
-  const [, cierreAnterior] = cierres[cierres.length - 2];
-  pane.prevClose = cierreAnterior;
+  // Solo el día de HOY está en curso: su cierre aún se mueve y no sirve de
+  // referencia. Cualquier día anterior ya cerró, aunque sea el último que
+  // tenga el gráfico.
+  const hoyNY = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const claveHoy = hoyNY.getFullYear() * 10000 + (hoyNY.getMonth() + 1) * 100 + hoyNY.getDate();
+  const cerrados = cierres.filter(([k]) => k < claveHoy);
+  if (!cerrados.length) return;
 
-  // lunes de la semana a la que pertenece el día en curso
+  // el más reciente ya cerrado es el "cierre anterior" (línea blanca)
+  const [claveActual] = cerrados[cerrados.length - 1];
+  pane.prevClose = cerrados[cerrados.length - 1][1];
+
+  // lunes de la semana a la que pertenece ese día
   const d = new Date(Math.floor(claveActual / 10000),
                      Math.floor(claveActual / 100) % 100 - 1, claveActual % 100);
   const lunes = new Date(d);
@@ -2027,8 +2033,8 @@ function calcularCierresSemana(pane) {
   const claveLunes = lunes.getFullYear() * 10000 + (lunes.getMonth() + 1) * 100 + lunes.getDate();
 
   const DIAS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
-  // se omiten el día en curso y el anterior: ese ya lo pinta la línea blanca
-  for (const [clave, close] of cierres.slice(0, -2)) {
+  // se omite el último cerrado: ese ya lo pinta la línea blanca
+  for (const [clave, close] of cerrados.slice(0, -1)) {
     if (clave < claveLunes) continue;
     const f = new Date(Math.floor(clave / 10000), Math.floor(clave / 100) % 100 - 1, clave % 100);
     pane.weekCloses.push({ close, dia: DIAS[f.getDay()] });
