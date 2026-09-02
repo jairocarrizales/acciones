@@ -556,22 +556,18 @@ body.splitting.row { cursor: row-resize; }
 .btn-toggle-dma { font-size: 10px; font-weight: 700; letter-spacing: 0.2px; }
 .btn-sync-symbol { font-size: 11px; }
 
-/* menú para elegir el conjunto de medias del panel */
-.ma-set-wrap { position: relative; display: inline-flex; }
-.ma-set-menu {
-  position: absolute; top: 32px; right: 0; z-index: 70; min-width: 170px;
-  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
-  padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+/* ventana para elegir el conjunto de medias */
+.ma-set-opciones { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; }
+.ma-set-op {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-panel-2);
 }
-.ma-set-menu button {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
-  width: 100%; text-align: left; border: none; background: none;
-  padding: 6px 9px; border-radius: 5px; line-height: 1.2;
-}
-.ma-set-menu button:hover { background: var(--hover); }
-.ma-set-menu button.activo { background: rgba(59,130,246,0.18); }
-.ma-set-menu button b { font-size: 12px; }
-.ma-set-menu button span { font-size: 10px; color: var(--text-dim); }
+.ma-set-op:hover { border-color: var(--accent); }
+.ma-set-op.activo { border-color: var(--accent); background: rgba(59,130,246,0.14); }
+.ma-set-nom { font-size: 14px; font-weight: 700; }
+.ma-set-det { font-size: 11px; color: var(--text-dim); }
+.ma-set-op i { margin-left: auto; color: var(--accent); font-size: 11px; }
 
 /* iconos de dibujo en SVG: heredan el color del botón (blancos en modo oscuro) */
 .tool-svg { width: 14px; height: 14px; display: block; color: inherit; }

@@ -37,6 +37,7 @@
       <button id="btnSplitView" title="Diseño de paneles: 1 / 2 / 4"><i class="fa-solid fa-table-columns"></i></button>
       <button id="btnFullscreen" title="Pantalla completa (F11 también)"><i class="fa-solid fa-expand"></i></button>
       <button id="btnRangos" title="Calcular rango de precios (opciones)"><i class="fa-solid fa-calculator"></i></button>
+      <button id="btnMaSet" title="Elegir las medias móviles del gráfico"><i class="fa-solid fa-layer-group"></i></button>
       <button id="btnTargets" title="Historial de cambios de precio objetivo"><i class="fa-solid fa-bullseye"></i></button>
       <div class="mapa-wrap">
         <button id="btnMapa" title="Mapa del mercado en Finviz"><i class="fa-solid fa-table-cells-large"></i></button>
@@ -193,6 +194,17 @@
     <div class="modal-actions">
       <button id="btnCloseSettings">Cerrar</button>
       <button id="btnSaveApiKey" class="primary-btn">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="maSetModal" class="modal hidden">
+  <div class="modal-box">
+    <h3><i class="fa-solid fa-layer-group"></i> Medias móviles</h3>
+    <p class="hint">Se aplican al panel enfocado y se recuerdan en este navegador.</p>
+    <div id="maSetOpciones" class="ma-set-opciones"></div>
+    <div class="modal-actions">
+      <button id="btnCloseMaSet" class="primary-btn">Cerrar</button>
     </div>
   </div>
 </div>

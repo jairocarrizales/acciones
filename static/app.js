@@ -246,13 +246,6 @@ function buildPaneDom(letter) {
       </div>
       <span class="spacer"></span>
       <button class="btn-toggle-ma tool-btn" data-pane="${letter}" title="Mostrar/ocultar medias móviles"><i class="fa-solid fa-wave-square"></i></button>
-      <div class="ma-set-wrap" data-pane="${letter}">
-        <button class="btn-ma-set tool-btn" data-pane="${letter}" title="Conjunto de medias"><i class="fa-solid fa-layer-group"></i></button>
-        <div class="ma-set-menu hidden">
-          ${Object.entries(MA_SETS).map(([k, v]) =>
-            `<button data-set="${k}"><b>${v.nombre}</b><span>${v.detalle}</span></button>`).join("")}
-        </div>
-      </div>
       <button class="btn-toggle-dma tool-btn" data-pane="${letter}" title="Medias fijas de una temporalidad mayor">D1</button>
       <button class="btn-toggle-bb tool-btn active" data-pane="${letter}" title="Mostrar/ocultar Bandas de Bollinger"><i class="fa-solid fa-water"></i></button>
       <button class="btn-toggle-stoch tool-btn" data-pane="${letter}" title="Panel inferior: Worden Stochastics 12 %K 3 + Volumen"><i class="fa-solid fa-chart-column"></i></button>
@@ -349,6 +342,7 @@ function setActivePane(letter) {
   document.querySelectorAll(".chart-pane").forEach((el) => el.classList.toggle("focused", el.id === `pane${letter}`));
   document.querySelectorAll(".wl-symbol").forEach((el) => el.classList.toggle("active", el.dataset.ticker === state.symbol));
   updateCurrentPrice();
+  pintarBotonMaSet(panes[letter]); // el botón de medias refleja el panel enfocado
 }
 
 function applyChartTheme() {
@@ -1792,38 +1786,6 @@ document.querySelectorAll(".btn-toggle-stoch").forEach((btn) => {
 
 // Niveles de las MAs diarias (líneas punteadas D1) en paneles intradía: toggle propio,
 // independiente del botón de MAs de la temporalidad, con preferencia local por panel.
-// Menú del conjunto de medias: un clic abre, otro elige.
-document.querySelectorAll(".ma-set-wrap").forEach((wrap) => {
-  const pane = panes[wrap.dataset.pane];
-  const btn = wrap.querySelector(".btn-ma-set");
-  const menu = wrap.querySelector(".ma-set-menu");
-  pintarBotonMaSet(pane);
-
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    document.querySelectorAll(".ma-set-menu").forEach((m) => {
-      if (m !== menu) m.classList.add("hidden");
-    });
-    menu.querySelectorAll("button").forEach((b) =>
-      b.classList.toggle("activo", b.dataset.set === maSetActivo(pane)));
-    menu.classList.toggle("hidden");
-  });
-
-  menu.querySelectorAll("button").forEach((b) => {
-    b.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      menu.classList.add("hidden");
-      await aplicarMaSet(pane, b.dataset.set);
-    });
-  });
-});
-
-document.addEventListener("click", (e) => {
-  if (!e.target.closest(".ma-set-wrap")) {
-    document.querySelectorAll(".ma-set-menu").forEach((m) => m.classList.add("hidden"));
-  }
-});
-
 document.querySelectorAll(".btn-toggle-dma").forEach((btn) => {
   const pane = panes[btn.dataset.pane];
   pintarBotonDma(pane);
@@ -2677,12 +2639,42 @@ async function aplicarMaSet(pane, clave) {
 }
 
 function pintarBotonMaSet(pane) {
-  const btn = document.querySelector(`.btn-ma-set[data-pane="${pane.letter}"]`);
+  // el botón vive en la barra superior y refleja el panel enfocado
+  if (pane.letter !== state.activePane) return;
+  const btn = document.getElementById("btnMaSet");
   if (!btn) return;
   const set = maSetActivo(pane);
   btn.classList.toggle("active", set !== "actual");
   btn.title = `Medias: ${MA_SETS[set].nombre} ${MA_SETS[set].detalle}`;
 }
+
+/** Ventana para elegir el conjunto de medias del panel enfocado. */
+const maSetModal = document.getElementById("maSetModal");
+
+function abrirMaSet() {
+  const pane = panes[state.activePane];
+  const actual = maSetActivo(pane);
+  document.getElementById("maSetOpciones").innerHTML =
+    Object.entries(MA_SETS).map(([k, v]) => `
+      <button class="ma-set-op${k === actual ? " activo" : ""}" data-set="${k}">
+        <span class="ma-set-nom">${v.nombre}</span>
+        <span class="ma-set-det">${v.detalle}</span>
+        ${k === actual ? '<i class="fa-solid fa-check"></i>' : ""}
+      </button>`).join("");
+
+  maSetModal.querySelectorAll(".ma-set-op").forEach((b) => {
+    b.addEventListener("click", async () => {
+      await aplicarMaSet(pane, b.dataset.set);
+      maSetModal.classList.add("hidden");
+      toast(`Medias: ${MA_SETS[b.dataset.set].nombre} ${MA_SETS[b.dataset.set].detalle}`);
+    });
+  });
+  maSetModal.classList.remove("hidden");
+}
+
+document.getElementById("btnMaSet").addEventListener("click", abrirMaSet);
+document.getElementById("btnCloseMaSet").addEventListener("click", () =>
+  maSetModal.classList.add("hidden"));
 
 // ---------------- alarms (solo líneas en el gráfico; el panel de gestión se quitó) ----------------
 
