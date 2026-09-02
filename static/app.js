@@ -32,22 +32,23 @@ const MA_SETS = {
       { enabled: true, type: "SMA", period: 200, color: "#a855f7", width: 3 },
     ],
   },
+  // 30 amarilla, 50 azul y 100 roja, todas del mismo grosor
   ema: {
     nombre: "30 · 50 · 100",
     detalle: "exponenciales",
     medias: [
-      { enabled: true, type: "EMA", period: 30, color: "#facc15", width: 1 },
-      { enabled: true, type: "EMA", period: 50, color: "#ef4444", width: 1 },
-      { enabled: true, type: "EMA", period: 100, color: "#39ff14", width: 3 },
+      { enabled: true, type: "EMA", period: 30, color: "#facc15", width: 2 },
+      { enabled: true, type: "EMA", period: 50, color: "#3b82f6", width: 2 },
+      { enabled: true, type: "EMA", period: 100, color: "#ef4444", width: 2 },
     ],
   },
   sma: {
     nombre: "30 · 50 · 100",
     detalle: "simples",
     medias: [
-      { enabled: true, type: "SMA", period: 30, color: "#facc15", width: 1 },
-      { enabled: true, type: "SMA", period: 50, color: "#ef4444", width: 1 },
-      { enabled: true, type: "SMA", period: 100, color: "#39ff14", width: 3 },
+      { enabled: true, type: "SMA", period: 30, color: "#facc15", width: 2 },
+      { enabled: true, type: "SMA", period: 50, color: "#3b82f6", width: 2 },
+      { enabled: true, type: "SMA", period: 100, color: "#ef4444", width: 2 },
     ],
   },
 };
@@ -787,12 +788,16 @@ class RectPaneRenderer {
       const x = Math.min(x1, x2), y = Math.min(y1, y2);
       const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
       ctx.save();
-      ctx.fillStyle = colorWithAlpha(o.color, 0.12);
+      ctx.fillStyle = colorWithAlpha(o.color, 0.18);
       ctx.fillRect(x, y, w, h);
-      ctx.lineWidth = (o.selected ? o.width + 1 : o.width) * scope.horizontalPixelRatio;
-      ctx.strokeStyle = o.color;
-      if (o.dashed) ctx.setLineDash([6 * scope.horizontalPixelRatio, 4 * scope.horizontalPixelRatio]);
-      ctx.strokeRect(x, y, w, h);
+      // el rectángulo va sin borde: solo se marca mientras está seleccionado,
+      // para poder verlo al arrastrarlo o redimensionarlo
+      if (o.selected) {
+        ctx.lineWidth = (o.width + 1) * scope.horizontalPixelRatio;
+        ctx.strokeStyle = o.color;
+        if (o.dashed) ctx.setLineDash([6 * scope.horizontalPixelRatio, 4 * scope.horizontalPixelRatio]);
+        ctx.strokeRect(x, y, w, h);
+      }
       ctx.restore();
       if (o.selected) {
         drawHandle(ctx, x1, y1, scope, false, o.color);
