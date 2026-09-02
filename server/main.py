@@ -181,6 +181,8 @@ def _market_open_now() -> bool:
 # apertura (9:30, 10:30...), lo que produce cuerpos y mechas distintos con los mismos
 # datos. Se agregan aquí para que los patrones coincidan.
 AGREGADAS = {"1h": 1, "4h": 4}
+# M30 se arma desde M15 (dos velas por bloque), alineado a la hora en punto.
+AGREGADAS_DESDE_M15 = {"m30": 30}
 AGREGADAS_MIN = {"m2": 2, "m3": 3, "m10": 10}  # minutos por vela, agrupados desde M1
 
 
@@ -189,6 +191,26 @@ def _agrupar_minutos(velas, minutos):
     bloques = {}
     for c in velas:
         dt = datetime.utcfromtimestamp(c["time"])
+        m = (dt.minute // minutos) * minutos
+        clave = dt.replace(minute=m, second=0, microsecond=0)
+        ts = int(clave.replace(tzinfo=timezone.utc).timestamp())
+        b = bloques.get(ts)
+        if b is None:
+            bloques[ts] = {"time": ts, "open": c["open"], "high": c["high"],
+                           "low": c["low"], "close": c["close"], "volume": c.get("volume") or 0}
+        else:
+            b["high"] = max(b["high"], c["high"])
+            b["low"] = min(b["low"], c["low"])
+            b["close"] = c["close"]
+            b["volume"] += c.get("volume") or 0
+    return [bloques[k] for k in sorted(bloques)]
+
+
+def _agrupar_desde_m15(m15, minutos):
+    """Agrupa velas de 15 min en velas de N minutos alineadas a la hora en punto."""
+    bloques = {}
+    for c in m15:
+        dt = datetime.utcfromtimestamp(c["time"])  # epoch 'naive' = hora de mercado
         m = (dt.minute // minutos) * minutos
         clave = dt.replace(minute=m, second=0, microsecond=0)
         ts = int(clave.replace(tzinfo=timezone.utc).timestamp())
@@ -233,6 +255,11 @@ async def _ensure_candles(symbol: str, interval: str, refresh: bool = False):
     if interval in AGREGADAS_MIN:
         m1 = await _ensure_candles_raw(symbol, "m1", refresh)
         return _agrupar_minutos(m1, AGREGADAS_MIN[interval])
+
+    # M30 sale de M15: el proveedor no lo sirve y desde M1 el histórico sería corto
+    if interval in AGREGADAS_DESDE_M15:
+        m15 = await _ensure_candles_raw(symbol, "m15", refresh)
+        return _agrupar_desde_m15(m15, AGREGADAS_DESDE_M15[interval])
 
     if interval in AGREGADAS:
         base = await _ensure_candles_raw(symbol, interval, refresh)
