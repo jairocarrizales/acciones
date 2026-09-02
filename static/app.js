@@ -2004,20 +2004,24 @@ function calcularCierresSemana(pane) {
   const d = pane.dailyCandles;
   if (!d || !d.length) return;
 
-  const ultima = new Date(d[d.length - 1].time * 1000);
-  // lunes de la semana a la que pertenece la última vela diaria
-  const diaSemana = (ultima.getUTCDay() + 6) % 7; // 0 = lunes
-  const lunes = new Date(ultima);
-  lunes.setUTCDate(ultima.getUTCDate() - diaSemana);
-  lunes.setUTCHours(0, 0, 0, 0);
-  const desde = lunes.getTime() / 1000;
+  // La semana se calcula sobre la fecha REAL de mercado, no sobre la última
+  // vela: si los datos van con retraso, esa vela es de días atrás y la semana
+  // saldría desplazada.
+  const hoyNY = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const diaSemana = (hoyNY.getDay() + 6) % 7; // 0 = lunes
+  const lunes = new Date(hoyNY);
+  lunes.setDate(hoyNY.getDate() - diaSemana);
+  lunes.setHours(0, 0, 0, 0);
+  const claveLunes = lunes.getFullYear() * 10000 + (lunes.getMonth() + 1) * 100 + lunes.getDate();
+  const claveHoy = hoyNY.getFullYear() * 10000 + (hoyNY.getMonth() + 1) * 100 + hoyNY.getDate();
 
-  // todas menos la última (el cierre de ayer ya tiene su línea propia)
-  for (let i = 0; i < d.length - 1; i++) {
-    if (d[i].time < desde) continue;
-    const dt = new Date(d[i].time * 1000);
+  for (const vela of d) {
+    const k = dayKeyOf(vela.time);
+    // de esta semana, y solo días ya cerrados (hoy no cuenta: aún cotiza)
+    if (k < claveLunes || k >= claveHoy) continue;
+    const dt = new Date(vela.time * 1000);
     pane.weekCloses.push({
-      close: d[i].close,
+      close: vela.close,
       dia: ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"][dt.getUTCDay()],
     });
   }
