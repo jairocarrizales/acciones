@@ -509,6 +509,7 @@ async function loadDailyReference(pane) {
   // corre en paralelo con loadPrevClose: se recalcula aquí porque el cierre
   // semanal sale justo de estas velas diarias
   calcularCierresSemana(pane);
+  ajustarCierreAnterior(pane);
   applyPrevCloseLine(pane);
 }
 
@@ -1990,7 +1991,22 @@ async function loadPrevClose(pane) {
     pane.prevClose = null;
   }
   calcularCierresSemana(pane);
+  ajustarCierreAnterior(pane);
   applyPrevCloseLine(pane);
+}
+
+/** El cierre anterior es el de la última sesión cerrada.
+ *
+ *  Yahoo entrega en previousClose la sesión ANTERIOR a la última cerrada: con el
+ *  mercado aún sin abrir eso deja la línea un día atrasada. Mientras hoy no
+ *  cotice, manda el cierre de la última vela diaria. */
+function ajustarCierreAnterior(pane) {
+  const d = pane.dailyCandles;
+  if (!d || !d.length) return;
+  const ultima = d[d.length - 1];
+  const hoyNY = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const claveHoy = hoyNY.getFullYear() * 10000 + (hoyNY.getMonth() + 1) * 100 + hoyNY.getDate();
+  if (dayKeyOf(ultima.time) < claveHoy) pane.prevClose = ultima.close;
 }
 
 /** Cierres de los días ya cerrados de la semana en curso.
@@ -2015,10 +2031,14 @@ function calcularCierresSemana(pane) {
   const claveLunes = lunes.getFullYear() * 10000 + (lunes.getMonth() + 1) * 100 + lunes.getDate();
   const claveHoy = hoyNY.getFullYear() * 10000 + (hoyNY.getMonth() + 1) * 100 + hoyNY.getDate();
 
+  // la última sesión cerrada ya tiene su propia línea blanca: no se repite
+  const ultimaCerrada = d.length ? dayKeyOf(d[d.length - 1].time) : 0;
+
   for (const vela of d) {
     const k = dayKeyOf(vela.time);
     // de esta semana, y solo días ya cerrados (hoy no cuenta: aún cotiza)
     if (k < claveLunes || k >= claveHoy) continue;
+    if (k === ultimaCerrada && ultimaCerrada < claveHoy) continue;
     const dt = new Date(vela.time * 1000);
     pane.weekCloses.push({
       close: vela.close,
