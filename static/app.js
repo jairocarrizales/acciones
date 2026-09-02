@@ -304,7 +304,7 @@ function createPane(letter, defaultInterval) {
     dmaRef: {}, // temporalidad de referencia -> velas ya descargadas
     extVisible: false, // sesión extendida (pre/post): retirada de la barra por no ser útil en valores poco líquidos
     extPrimitive: null,
-    targetPriceLine: null, alarmPriceLines: [], sessionPrimitive: null, prevClose: null, weekClose: null,
+    targetPriceLine: null, alarmPriceLines: [], sessionPrimitive: null, prevClose: null, weekCloses: [],
     interval: defaultInterval, candles: [],
     maConfig: [], dailyCandles: [], targetPrice: null, alarms: [], earnings: [],
     trendPrimitives: [], drawings: [], selectedDrawingId: null,
@@ -508,7 +508,7 @@ async function loadDailyReference(pane) {
   applyDailyMaLines(pane);
   // corre en paralelo con loadPrevClose: se recalcula aquí porque el cierre
   // semanal sale justo de estas velas diarias
-  calcularCierreSemanal(pane);
+  calcularCierresSemana(pane);
   applyPrevCloseLine(pane);
 }
 
@@ -1989,20 +1989,37 @@ async function loadPrevClose(pane) {
   } catch (_) {
     pane.prevClose = null;
   }
-  calcularCierreSemanal(pane);
+  calcularCierresSemana(pane);
   applyPrevCloseLine(pane);
 }
 
-/** Cierre del último viernes, tomado de las velas diarias ya cargadas.
- *  Sirve de referencia al abrir la semana; el resto de días no se pinta. */
-function calcularCierreSemanal(pane) {
-  pane.weekClose = null;
+/** Cierres de los días ya cerrados de la semana en curso.
+ *
+ *  Se acumulan de lunes a viernes: el miércoles se ven los de lunes y martes,
+ *  el viernes los de lunes a jueves. Al llegar el lunes la semana empieza de
+ *  cero y no queda ninguno. El del día anterior se excluye, porque ya lo pinta
+ *  su propia línea blanca. */
+function calcularCierresSemana(pane) {
+  pane.weekCloses = [];
   const d = pane.dailyCandles;
   if (!d || !d.length) return;
-  // se recorre hacia atrás hasta dar con el viernes más reciente ya cerrado
-  for (let i = d.length - 1; i >= 0 && i > d.length - 12; i--) {
-    const dia = new Date(d[i].time * 1000).getUTCDay();
-    if (dia === 5) { pane.weekClose = d[i].close; return; }
+
+  const ultima = new Date(d[d.length - 1].time * 1000);
+  // lunes de la semana a la que pertenece la última vela diaria
+  const diaSemana = (ultima.getUTCDay() + 6) % 7; // 0 = lunes
+  const lunes = new Date(ultima);
+  lunes.setUTCDate(ultima.getUTCDate() - diaSemana);
+  lunes.setUTCHours(0, 0, 0, 0);
+  const desde = lunes.getTime() / 1000;
+
+  // todas menos la última (el cierre de ayer ya tiene su línea propia)
+  for (let i = 0; i < d.length - 1; i++) {
+    if (d[i].time < desde) continue;
+    const dt = new Date(d[i].time * 1000);
+    pane.weekCloses.push({
+      close: d[i].close,
+      dia: ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"][dt.getUTCDay()],
+    });
   }
 }
 
@@ -2015,11 +2032,6 @@ function applyPrevCloseLine(pane) {
     pane.candleSeries.attachPrimitive(pane.sessionPrimitive);
   }
   pane.sessionPrimitive.requestUpdate();
-}
-
-/** ¿El epoch (hora de mercado) cae en lunes? */
-function esLunes(t) {
-  return new Date(t * 1000).getUTCDay() === 1;
 }
 
 function dayKeyOf(t) {
@@ -2089,11 +2101,19 @@ class SessionMarksPrimitive {
         pintarNivel(pane.prevClose, idxHoy, "#e6e6e6", [8, 6]);
       }
 
-      // cierre del viernes: solo el lunes, para arrancar la semana con esa
-      // referencia; de martes en adelante estorba y se deja de pintar
-      if (pane.weekClose && esLunes(c[c.length - 1].time)) {
-        pintarNivel(pane.weekClose, idxHoy, "#facc15", [2, 4]);
-      }
+      // cierres de los días ya cerrados de esta semana, en amarillo y con la
+      // etiqueta del día para no confundirlos entre sí
+      (pane.weekCloses || []).forEach((w) => {
+        pintarNivel(w.close, idxHoy, "#facc15", [2, 4]);
+        const y = pane.candleSeries.priceToCoordinate(w.close);
+        if (y == null) return;
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#facc15";
+        ctx.font = `${10 * hpr}px -apple-system, "Segoe UI", sans-serif`;
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(w.dia, scope.bitmapSize.width - 4 * hpr, Math.round(y * vpr) - 2 * vpr);
+      });
       ctx.restore();
     });
   }
