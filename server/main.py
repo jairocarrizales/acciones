@@ -278,6 +278,20 @@ async def _ensure_candles(symbol: str, interval: str, refresh: bool = False):
     return await _ensure_candles_raw(symbol, interval, refresh)
 
 
+async def _completar_historico(symbol: str, interval: str):
+    """Descarga el histórico completo de un símbolo recién estrenado.
+
+    Corre en segundo plano: el gráfico ya se ve con el tramo corto y las velas
+    antiguas van apareciendo al desplazarse hacia atrás.
+    """
+    try:
+        rows = await td.fetch_time_series(_api_key(), symbol, interval)
+        if rows:
+            db.upsert_candles(symbol, interval, rows)
+    except Exception:
+        pass  # se reintentará en la próxima carga del símbolo
+
+
 async def _ensure_candles_raw(symbol: str, interval: str, refresh: bool = False):
     """Velas tal como las entrega el proveedor (sin realinear)."""
 
@@ -292,10 +306,16 @@ async def _ensure_candles_raw(symbol: str, interval: str, refresh: bool = False)
             existing = db.get_candles(symbol, interval)
             if existing and not refresh:
                 start_ts = existing[-1]["time"] - 5 * 86400
-            rows = await td.fetch_time_series(_api_key(), symbol, interval, start_ts)
+            # Símbolo nuevo: se trae primero un tramo corto para poder pintar ya,
+            # y el histórico completo se completa después sin bloquear la respuesta.
+            primera_vez = not existing
+            rows = await td.fetch_time_series(_api_key(), symbol, interval, start_ts,
+                                              rapido=primera_vez)
             if rows:
                 db.upsert_candles(symbol, interval, rows)
             db.set_fetch_time(symbol, interval, now)
+            if primera_vez:
+                asyncio.create_task(_completar_historico(symbol, interval))
         except td.TwelveDataError as e:
             # Twelve Data caído o sin cuota: FMP cubre el diario, que es lo que
             # su plan permite. El intradía se queda con lo que haya en caché.

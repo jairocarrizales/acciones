@@ -32,11 +32,19 @@ def _ts_to_str(ts: int) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
-async def fetch_time_series(api_key: str, symbol: str, interval: str, start_ts: int | None = None):
+# Pedir las 5000 velas de golpe tarda entre 7 y 26 s: un símbolo nuevo dejaba el
+# gráfico congelado todo ese rato. Se trae primero un tramo corto (~1,3 s) y el
+# histórico completo se completa después, en segundo plano.
+OUTPUT_RAPIDO = 800
+OUTPUT_COMPLETO = 5000
+
+
+async def fetch_time_series(api_key: str, symbol: str, interval: str,
+                            start_ts: int | None = None, rapido: bool = False):
     params = {
         "symbol": symbol,
         "interval": INTERVAL_MAP[interval],
-        "outputsize": 5000,
+        "outputsize": OUTPUT_RAPIDO if rapido else OUTPUT_COMPLETO,
         "timezone": "America/New_York",
         "apikey": api_key,
     }
