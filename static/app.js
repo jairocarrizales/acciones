@@ -2666,6 +2666,17 @@ if (btnPremarket) {
       applyPrevCloseLine(p);
     });
     rerenderWatchlist();
+
+    if (nuevo) {
+      // Twelve Data solo entrega premarket y after en su plan Pro: sin esas
+      // velas no hay nada que sombrear, así que conviene decirlo en vez de
+      // dejar el botón encendido sin efecto visible
+      const pane = panes[state.activePane];
+      const hayFuera = pane.candles.some((c) => !enSesionRegular(c.time));
+      toast(hayFuera
+        ? "Fuera de horario resaltado en el gráfico."
+        : "El proveedor no envía velas de premarket/after (requiere plan Pro). Sí se muestra el precio de sesión en la lista.");
+    }
   });
 }
 
