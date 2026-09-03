@@ -303,10 +303,9 @@ function createPane(letter, defaultInterval) {
     // Arranca apagado; cada clic avanza en el ciclo y la elección se recuerda.
     dmaMode: localStorage.getItem(`dmaMode:${letter}`) || "",
     dmaRef: {}, // temporalidad de referencia -> velas ya descargadas
-    extVisible: false, // sesión extendida (pre/post): retirada de la barra por no ser útil en valores poco líquidos
+    extVisible: localStorage.getItem("premarketVisible") === "1", // sesión extendida (pre/post)
     extPrimitive: null,
     targetPriceLine: null, alarmPriceLines: [], sessionPrimitive: null, prevClose: null, weekCloses: [],
-    mostrarSesiones: localStorage.getItem("premarketVisible") === "1",
     interval: defaultInterval, candles: [],
     maConfig: [], dailyCandles: [], targetPrice: null, alarms: [], earnings: [],
     trendPrimitives: [], drawings: [], selectedDrawingId: null,
@@ -2062,13 +2061,6 @@ function applyPrevCloseLine(pane) {
   pane.sessionPrimitive.requestUpdate();
 }
 
-/** ¿La vela cae dentro de la sesión regular (9:30-16:00 hora de mercado)? */
-function enSesionRegular(t) {
-  const d = new Date(t * 1000); // epoch "naive" = hora de NY, se lee en UTC
-  const min = d.getUTCHours() * 60 + d.getUTCMinutes();
-  return min >= 9 * 60 + 30 && min < 16 * 60;
-}
-
 function dayKeyOf(t) {
   const d = new Date(t * 1000); // epoch "naive" hora NY -> leer en UTC
   return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
@@ -2095,26 +2087,6 @@ class SessionMarksPrimitive {
       const bs = (ts.options().barSpacing || 6) * hpr;
       const dark = true;
       ctx.save();
-
-      // 0) franjas de fuera de horario (premarket y after), como en TC2000: el
-      // fondo sombreado separa de un vistazo esas velas de la sesión regular
-      if (pane.mostrarSesiones) {
-        ctx.fillStyle = "rgba(255,255,255,0.05)";
-        let ini = null;
-        for (let i = from; i <= to + 1; i++) {
-          const vela = c[i];
-          const fuera = vela ? !enSesionRegular(vela.time) : false;
-          if (fuera && ini === null) ini = i;
-          if ((!fuera || !vela) && ini !== null) {
-            const xa = ts.timeToCoordinate(c[ini].time);
-            const xb = ts.timeToCoordinate(c[i - 1].time);
-            if (xa != null && xb != null) {
-              ctx.fillRect(xa * hpr - bs / 2, 0, (xb - xa) * hpr + bs, scope.bitmapSize.height);
-            }
-            ini = null;
-          }
-        }
-      }
 
       // 1) separadores verticales al cambiar de día
       ctx.strokeStyle = dark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.25)";
@@ -2660,23 +2632,15 @@ if (btnPremarket) {
     const nuevo = !premarketVisible();
     localStorage.setItem("premarketVisible", nuevo ? "1" : "0");
     btnPremarket.classList.toggle("active", nuevo);
-    // afecta a las franjas del gráfico y al precio de sesión en la lista
-    Object.values(panes).forEach((p) => {
-      p.mostrarSesiones = nuevo;
-      applyPrevCloseLine(p);
+    // Las velas de premarket y after vienen de Yahoo (Twelve Data solo las
+    // sirve en su plan Pro), así que hay que recargar el gráfico con esa fuente.
+    Object.values(panes).forEach(async (p) => {
+      p.extVisible = nuevo;
+      if (p.candles.length) await loadCandles(p);
     });
     rerenderWatchlist();
-
-    if (nuevo) {
-      // Twelve Data solo entrega premarket y after en su plan Pro: sin esas
-      // velas no hay nada que sombrear, así que conviene decirlo en vez de
-      // dejar el botón encendido sin efecto visible
-      const pane = panes[state.activePane];
-      const hayFuera = pane.candles.some((c) => !enSesionRegular(c.time));
-      toast(hayFuera
-        ? "Fuera de horario resaltado en el gráfico."
-        : "El proveedor no envía velas de premarket/after (requiere plan Pro). Sí se muestra el precio de sesión en la lista.");
-    }
+    toast(nuevo ? "Premarket y after visibles en el gráfico."
+                : "Solo sesión regular.");
   });
 }
 
