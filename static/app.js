@@ -1711,11 +1711,19 @@ async function loadPaneData(pane) {
   if (lbl) lbl.textContent = pane.symbol;
   updateWatermark(pane);
   pane.dmaRef = {}; // otro símbolo: las referencias H1/M15 en caché ya no valen
-  await Promise.all([
-    loadCandles(pane), loadMAConfig(pane), loadAlarms(pane), loadEarnings(pane),
-    loadTargetPrice(pane), loadDailyReference(pane), loadPrevClose(pane),
-  ]);
-  await refreshDma(pane);
+
+  // Las velas primero y solas: esperar al resto (histórico diario, objetivo,
+  // earnings...) dejaba el gráfico con el activo anterior varios segundos.
+  await loadCandles(pane);
+
+  // Lo demás son adornos sobre un gráfico que ya se ve; cada uno se pinta
+  // cuando llega y un fallo suyo no impide que el resto aparezca.
+  const extras = [
+    loadMAConfig(pane), loadAlarms(pane), loadEarnings(pane),
+    loadTargetPrice(pane), loadPrevClose(pane),
+    loadDailyReference(pane).then(() => refreshDma(pane)),
+  ];
+  await Promise.allSettled(extras);
 }
 
 // Cambia el símbolo del panel ENFOCADO (clic en un panel para enfocarlo).
