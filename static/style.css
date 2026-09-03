@@ -479,6 +479,15 @@ input, select, textarea {
   background: rgba(140,150,170,0.2); color: var(--text-dim); font-size: 9px; font-weight: 700;
   letter-spacing: .03em; padding: 1px 5px; border-radius: 4px; margin-right: 4px;
 }
+/* Cada sesión con su color, como en TC2000: el fuera de horario en ámbar y la
+   sesión regular en claro, para no confundirlas de un vistazo. */
+.pm-tag.premarket { background: rgba(250,204,21,0.22); color: #facc15; }
+.pm-tag.postmarket { background: rgba(249,115,22,0.22); color: #fb923c; }
+.pm-tag.regular { background: rgba(255,255,255,0.16); color: #e6e9ef; }
+.pm-tag.closed { background: rgba(140,150,170,0.18); color: var(--text-dim); }
+/* el precio acompaña al color de la etiqueta cuando es fuera de horario */
+.wls-premarket:has(.pm-tag.premarket) { color: #facc15; }
+.wls-premarket:has(.pm-tag.postmarket) { color: #fb923c; }
 .wl-symbol.active .pm-tag { background: rgba(255,255,255,0.25); color: #fff; }
 .pm-change.up { color: var(--green); }
 .pm-change.down { color: var(--red); }

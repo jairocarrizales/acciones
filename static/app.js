@@ -306,6 +306,7 @@ function createPane(letter, defaultInterval) {
     extVisible: false, // sesión extendida (pre/post): retirada de la barra por no ser útil en valores poco líquidos
     extPrimitive: null,
     targetPriceLine: null, alarmPriceLines: [], sessionPrimitive: null, prevClose: null, weekCloses: [],
+    mostrarSesiones: localStorage.getItem("premarketVisible") === "1",
     interval: defaultInterval, candles: [],
     maConfig: [], dailyCandles: [], targetPrice: null, alarms: [], earnings: [],
     trendPrimitives: [], drawings: [], selectedDrawingId: null,
@@ -2061,6 +2062,13 @@ function applyPrevCloseLine(pane) {
   pane.sessionPrimitive.requestUpdate();
 }
 
+/** ¿La vela cae dentro de la sesión regular (9:30-16:00 hora de mercado)? */
+function enSesionRegular(t) {
+  const d = new Date(t * 1000); // epoch "naive" = hora de NY, se lee en UTC
+  const min = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return min >= 9 * 60 + 30 && min < 16 * 60;
+}
+
 function dayKeyOf(t) {
   const d = new Date(t * 1000); // epoch "naive" hora NY -> leer en UTC
   return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
@@ -2087,6 +2095,26 @@ class SessionMarksPrimitive {
       const bs = (ts.options().barSpacing || 6) * hpr;
       const dark = true;
       ctx.save();
+
+      // 0) franjas de fuera de horario (premarket y after), como en TC2000: el
+      // fondo sombreado separa de un vistazo esas velas de la sesión regular
+      if (pane.mostrarSesiones) {
+        ctx.fillStyle = "rgba(255,255,255,0.05)";
+        let ini = null;
+        for (let i = from; i <= to + 1; i++) {
+          const vela = c[i];
+          const fuera = vela ? !enSesionRegular(vela.time) : false;
+          if (fuera && ini === null) ini = i;
+          if ((!fuera || !vela) && ini !== null) {
+            const xa = ts.timeToCoordinate(c[ini].time);
+            const xb = ts.timeToCoordinate(c[i - 1].time);
+            if (xa != null && xb != null) {
+              ctx.fillRect(xa * hpr - bs / 2, 0, (xb - xa) * hpr + bs, scope.bitmapSize.height);
+            }
+            ini = null;
+          }
+        }
+      }
 
       // 1) separadores verticales al cambiar de día
       ctx.strokeStyle = dark ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.25)";
@@ -2457,7 +2485,7 @@ function renderFavoritesTab(groups) {
   const favs = getLocalFavs();
   const favorites = [];
   groups.forEach((g) => {
-    const showPremarket = /etf|materia/i.test(g.name);
+    const showPremarket = premarketVisible();
     g.symbols.forEach((s) => { if (favs.includes(s.ticker)) favorites.push({ s, showPremarket }); });
   });
   const sorted = sortByEarnings(favorites.map((f) => f.s));
@@ -2548,7 +2576,7 @@ function renderGroup(g) {
     loadWatchlist();
   });
 
-  const showPremarket = /etf|materia/i.test(g.name);
+  const showPremarket = premarketVisible();
   sortByEarnings(g.symbols).forEach((s) => symsEl.appendChild(renderSymbol(s, showPremarket)));
   return div;
 }
@@ -2601,19 +2629,55 @@ function renderSymbol(s, showPremarket) {
   return el;
 }
 
+// Etiquetas de sesión: el precio sigue mostrándose con el mercado abierto, y solo
+// desaparece si se apaga el interruptor.
+const PM_ETIQUETA = { premarket: "PREMARKET", regular: "EN VIVO", postmarket: "AFTER", closed: "CIERRE" };
+
 async function loadPremarketBadge(ticker, el) {
   if (!el) return;
   try {
     const q = await api(`/api/premarket/${ticker}`);
-    if (q.session !== "premarket") { el.remove(); return; }
+    // se vacía en vez de quitarse: la caja debe seguir ahí para el refresco
+    if (q.price == null) { el.innerHTML = ""; return; }
     const up = q.change >= 0;
-    el.innerHTML = `<span class="pm-tag">PREMARKET</span> $${q.price.toFixed(2)} ` +
+    el.innerHTML = `<span class="pm-tag ${q.session}">${PM_ETIQUETA[q.session] || "—"}</span> $${q.price.toFixed(2)} ` +
       `<span class="pm-change ${up ? "up" : "down"}"><i class="fa-solid fa-caret-${up ? "up" : "down"}"></i> ` +
       `${Math.abs(q.change).toFixed(2)} (${Math.abs(q.change_pct).toFixed(2)}%)</span>`;
   } catch (_) {
-    el.remove();
+    el.innerHTML = "";
   }
 }
+
+/** ¿Se muestran los precios de sesión en la lista? Se recuerda por navegador. */
+function premarketVisible() {
+  return localStorage.getItem("premarketVisible") === "1";
+}
+
+const btnPremarket = document.getElementById("btnTogglePremarket");
+if (btnPremarket) {
+  btnPremarket.classList.toggle("active", premarketVisible());
+  btnPremarket.addEventListener("click", () => {
+    const nuevo = !premarketVisible();
+    localStorage.setItem("premarketVisible", nuevo ? "1" : "0");
+    btnPremarket.classList.toggle("active", nuevo);
+    // afecta a las franjas del gráfico y al precio de sesión en la lista
+    Object.values(panes).forEach((p) => {
+      p.mostrarSesiones = nuevo;
+      applyPrevCloseLine(p);
+    });
+    rerenderWatchlist();
+  });
+}
+
+// Los precios de sesión se refrescan solos mientras el interruptor esté puesto.
+// Van por Yahoo, así que no gastan cuota del proveedor de velas.
+setInterval(() => {
+  if (!premarketVisible() || document.hidden) return;
+  document.querySelectorAll("#sidebar-left .wl-symbol").forEach((el) => {
+    const caja = el.querySelector(".wls-premarket");
+    if (caja) loadPremarketBadge(el.dataset.ticker, caja);
+  });
+}, 45000);
 
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
