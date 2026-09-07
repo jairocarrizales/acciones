@@ -2850,6 +2850,39 @@ async function pollAlarmEvents() {
   setTimeout(pollAlarmEvents, 20000);
 }
 
+// ---------------- aviso de apertura fuera de las Bandas de Bollinger ----------------
+// Solo en la franja de las 9:30 ET y solo si el precio abre fuera de las bandas
+// en M15, 1H y D1 a la vez: coincidir en las tres descarta el ruido de una sola.
+
+async function pollAperturas() {
+  try {
+    const favs = getLocalFavs();
+    if (favs.length) {
+      const r = await api(`/api/aperturas?solo=${encodeURIComponent(favs.join(","))}`);
+      (r.items || []).forEach((it) => {
+        const arriba = it.direccion === "alcista";
+        const detalle = it.detalles
+          .map((d) => `${d.tf.toUpperCase()} ${d.distancia_pct}%`).join(" · ");
+        const msg = `${it.symbol} abrió ${arriba ? "por encima" : "por debajo"} de las bandas ` +
+                    `en M15, 1H y D1 — ${detalle}`;
+        toast(msg, true, arriba ? "fa-arrow-trend-up" : "fa-arrow-trend-down");
+        notifyBrowser(`Apertura fuera de bandas: ${it.symbol}`, msg);
+        beep();
+      });
+    }
+  } catch (_) {}
+  // se consulta a menudo durante la apertura, y de tanto en tanto el resto del día
+  setTimeout(pollAperturas, enFranjaApertura() ? 20000 : 300000);
+}
+
+/** ¿Estamos entre las 9:30 y las 10:00 de Nueva York, en día de mercado? */
+function enFranjaApertura() {
+  const ny = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  if (ny.getDay() === 0 || ny.getDay() === 6) return false;
+  const m = ny.getHours() * 60 + ny.getMinutes();
+  return m >= 9 * 60 + 30 && m <= 10 * 60;
+}
+
 // ---------------- earnings (registro manual) ----------------
 
 const STATUS_LABELS = { reportado: "Reportado", confirmado: "Confirmado", estimado: "Estimado" };
@@ -3540,6 +3573,7 @@ setLeftCollapsed(localStorage.getItem("leftCollapsed") === "1");
   setActivePane("A");
   applyLayout(); // carga los paneles visibles (los que no tienen velas aún)
   pollAlarmEvents();
+  pollAperturas();
   loadTrendScan();
   pollSaltos();
   cargarFed();
