@@ -18,6 +18,7 @@ from . import saltos
 from . import targetprice as tp
 from . import fomc
 from . import fmp
+from . import aperturas as ap
 from . import toques as tq
 from . import trends
 from . import twelvedata as td
@@ -999,6 +1000,58 @@ def poll_alarm_events():
     global alarm_events
     events, alarm_events = alarm_events, []
     return events
+
+
+# ---------------- Aviso de apertura fuera de las Bandas de Bollinger ----------------
+
+# Un aviso por activo y día: se recuerda lo ya emitido para no repetirlo en cada
+# consulta del navegador.
+_aperturas_avisadas: dict[str, int] = {}
+
+
+@app.get("/api/aperturas")
+async def aperturas_fuera_bandas(solo: str = ""):
+    """Activos cuya apertura de hoy quedó fuera de las bandas en M15, 1H y D1.
+
+    Solo dispara cuando coincide en las TRES temporalidades. El navegador
+    consulta este endpoint durante la franja de apertura.
+    """
+    if not ap.en_ventana_apertura():
+        return {"ventana": False, "items": []}
+
+    hoy_dt = datetime.now(saltos.MARKET_TZ)
+    hoy = hoy_dt.year * 10000 + hoy_dt.month * 100 + hoy_dt.day
+
+    tickers = _watchlist_tickers()
+    if solo:
+        pedidos = {t.strip().upper() for t in solo.split(",") if t.strip()}
+        tickers = [t for t in tickers if t in pedidos]
+
+    items = []
+    for t in tickers:
+        if _aperturas_avisadas.get(t) == hoy:
+            continue  # ya avisado hoy
+        try:
+            detalles = []
+            for tf in ap.TEMPORALIDADES:
+                velas = await _ensure_candles(t, tf)
+                r = ap.evaluar_apertura(velas, tf, hoy)
+                if not r:
+                    break
+                detalles.append(r)
+            # las tres temporalidades, y todas hacia el mismo lado
+            if len(detalles) != len(ap.TEMPORALIDADES):
+                continue
+            lados = {d["direccion"] for d in detalles}
+            if len(lados) != 1:
+                continue
+            _aperturas_avisadas[t] = hoy
+            items.append({"symbol": t, "direccion": detalles[0]["direccion"],
+                          "detalles": detalles})
+        except Exception:
+            pass
+
+    return {"ventana": True, "items": items}
 
 
 # ---------------- Escáner de toques a la MA20 y cruces de medias ----------------
