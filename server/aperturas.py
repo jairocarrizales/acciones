@@ -17,8 +17,12 @@ BB_PERIOD = 20
 BB_MULT = 2.0
 
 TEMPORALIDADES = ("m15", "1h", "1d")
-APERTURA_MIN = 9 * 60 + 30      # 9:30 ET
-VENTANA_MIN = 30                # se evalúa hasta las 10:00
+APERTURA_MIN = 9 * 60 + 30      # 9:30 ET, la campana
+VENTANA_MIN = 30                # hasta las 10:00 se sigue consultando por si el
+                                # dato del proveedor llega con retraso
+
+# Minutos que abarca cada vela, para saber cuál contiene la campana de las 9:30
+DURACION_MIN = {"m2": 2, "m3": 3, "m5": 5, "m10": 10, "m15": 15, "m30": 30, "1h": 60}
 
 
 def _bandas(closes):
@@ -56,13 +60,19 @@ def evaluar_apertura(candles, interval, hoy):
         apertura = candles[-1] if _dia(candles[-1]["time"]) == hoy else None
         previas = candles[:-1]
     else:
+        # La PRIMERA vela de la sesión de hoy, la que contiene la campana. En M15
+        # arranca a las 9:30; en 1H la vela va alineada a la hora en punto (09:00,
+        # como en TC2000), así que la de la apertura es la que cubre las 9:30.
+        # Cualquier vela posterior ya es la sesión en marcha, no la apertura.
         apertura = previas = None
         for i, c in enumerate(candles):
-            if _dia(c["time"]) == hoy and _minutos(c["time"]) >= APERTURA_MIN:
-                if _minutos(c["time"]) > APERTURA_MIN + VENTANA_MIN:
-                    break
-                apertura, previas = c, candles[:i]
-                break
+            if _dia(c["time"]) != hoy:
+                continue
+            fin = _minutos(c["time"]) + DURACION_MIN.get(interval, 15)
+            if fin <= APERTURA_MIN:
+                continue  # vela de premarket, aún no ha sonado la campana
+            apertura, previas = c, candles[:i]
+            break
     if not apertura or not previas or len(previas) < BB_PERIOD:
         return None
 
