@@ -19,6 +19,7 @@ from . import targetprice as tp
 from . import fomc
 from . import fmp
 from . import aperturas as ap
+from . import cruces as cr
 from . import toques as tq
 from . import trends
 from . import twelvedata as td
@@ -1054,6 +1055,45 @@ async def aperturas_fuera_bandas(solo: str = ""):
             pass
 
     return {"ventana": True, "items": items}
+
+
+# ---------------- Escáner de cruces 20/40 en H1 ----------------
+
+# Una vela de H1 tarda una hora en cerrarse, así que refrescar cada 10 minutos
+# basta: aunque se pulse el botón muchas veces seguidas, solo se gasta cuota una
+# vez por ventana.
+_cruces_cache: tuple[float, list] | None = None
+CRUCES_CACHE_TTL = 600
+
+
+@app.get("/api/cruces")
+async def escanear_cruces(solo: str = "", nivel: str = "medio", refresh: bool = False):
+    """Cruces recientes de la MA20 con la MA40 en H1, clasificados por contexto."""
+    global _cruces_cache
+    ahora = time.time()
+    if not refresh and _cruces_cache and (ahora - _cruces_cache[0]) < CRUCES_CACHE_TTL:
+        return {"items": _cruces_cache[1], "cacheado": True}
+
+    tickers = _watchlist_tickers()
+    if solo:
+        pedidos = {t.strip().upper() for t in solo.split(",") if t.strip()}
+        tickers = [t for t in tickers if t in pedidos]
+
+    items = []
+    for t in tickers:
+        try:
+            velas = await _ensure_candles(t, "1h")
+            medias = tq._medias(velas)
+            c = cr.detectar(velas, medias, nivel)
+            if c:
+                items.append({"symbol": t, **c})
+        except Exception:
+            pass
+
+    # lo más reciente arriba, y las cuatro medias alineadas por delante
+    items.sort(key=lambda x: (0 if x["cuatro_alineadas"] else 1, x["velas_atras"]))
+    _cruces_cache = (ahora, items)
+    return {"items": items, "cacheado": False}
 
 
 # ---------------- Escáner de toques a la MA20 y cruces de medias ----------------
