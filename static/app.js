@@ -3012,6 +3012,96 @@ function sincronizarDock() {
     Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
 }
 
+// ---------------- escáner de cruces 20/40 en H1 ----------------
+// Un cruce suelto dice poco: lo que importa es qué hacen las medias largas
+// cuando ocurre. Cada uno se etiqueta con su escenario en vez de descartarlo.
+
+const CR_ESCENARIOS = {
+  impulso:    { texto: "reanuda el impulso",   icono: "fa-forward" },
+  correccion: { texto: "empieza la corrección", icono: "fa-turn-down" },
+  retroceso:  { texto: "empieza el retroceso",  icono: "fa-turn-up" },
+  alineacion: { texto: "4 medias alineadas",    icono: "fa-layer-group" },
+};
+
+const crucesPanel = document.getElementById("sidebar-cruces");
+let crNivel = localStorage.getItem("crucesNivel") || "medio";
+
+function abrirCruces() {
+  crucesPanel.classList.remove("hidden");
+  document.getElementById("btnCruces").classList.add("active");
+  sincronizarDock();
+  if (!document.getElementById("crucesList").innerHTML) escanearCruces();
+}
+
+function cerrarCruces() {
+  crucesPanel.classList.add("hidden");
+  document.getElementById("btnCruces").classList.remove("active");
+  sincronizarDock();
+}
+
+async function escanearCruces(forzar = false) {
+  const btn = document.getElementById("btnScanCruces");
+  const st = document.getElementById("crucesStatus");
+  btn.disabled = true;
+  btn.classList.add("scanning");
+  st.textContent = "Escaneando favoritos en H1…";
+  try {
+    const favs = getLocalFavs();
+    const q = favs.length ? `&solo=${encodeURIComponent(favs.join(","))}` : "";
+    const r = await api(`/api/cruces?nivel=${crNivel}${q}${forzar ? "&refresh=true" : ""}`);
+    renderCruces(r.items || []);
+    st.textContent = `${(r.items || []).length} con cruce reciente` +
+      (r.cacheado ? " · desde caché" : "");
+  } catch (e) {
+    st.textContent = "Error al escanear: " + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("scanning");
+  }
+}
+
+function renderCruces(items) {
+  const list = document.getElementById("crucesList");
+  if (!items.length) {
+    list.innerHTML = `<p class="hint" style="padding:0 12px;">Sin cruces recientes en este nivel.</p>`;
+    return;
+  }
+  list.innerHTML = items.map((c) => {
+    const esc = CR_ESCENARIOS[c.escenario] || { texto: c.escenario, icono: "fa-shuffle" };
+    const up = c.direccion === "alcista";
+    return `<div class="cr-row${c.cuatro_alineadas ? " alineada" : ""}" data-ticker="${c.symbol}">
+        <div class="cr-top">
+          <b>${c.symbol}</b>
+          <span class="cr-esc ${up ? "up" : "down"}">
+            <i class="fa-solid ${esc.icono}"></i> ${esc.texto}</span>
+          <span class="cr-edad">${c.velas_atras === 0 ? "ahora" : `hace ${c.velas_atras}`}</span>
+        </div>
+        <div class="cr-sub">
+          20 ${up ? "sobre" : "bajo"} 40 · fondo ${c.fondo}
+          ${c.separacion_pct ? ` · 100/200 al ${c.separacion_pct}%` : ""}
+        </div>
+      </div>`;
+  }).join("");
+  list.querySelectorAll(".cr-row").forEach((r) =>
+    r.addEventListener("click", () => selectSymbol(r.dataset.ticker)));
+}
+
+document.getElementById("btnCruces").addEventListener("click", () =>
+  crucesPanel.classList.contains("hidden") ? abrirCruces() : cerrarCruces());
+document.getElementById("btnCloseCruces").addEventListener("click", cerrarCruces);
+document.getElementById("btnScanCruces").addEventListener("click", () => escanearCruces(true));
+
+document.querySelectorAll(".cr-nivel").forEach((b) => {
+  b.classList.toggle("active", b.dataset.nivel === crNivel);
+  b.addEventListener("click", () => {
+    crNivel = b.dataset.nivel;
+    localStorage.setItem("crucesNivel", crNivel);
+    document.querySelectorAll(".cr-nivel").forEach((x) =>
+      x.classList.toggle("active", x.dataset.nivel === crNivel));
+    escanearCruces();
+  });
+});
+
 /** Panel lateral con el historial completo de cambios de precio objetivo. */
 const targetsPanel = document.getElementById("sidebar-targets");
 

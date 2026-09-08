@@ -39,6 +39,7 @@
       <button id="btnRangos" title="Calcular rango de precios (opciones)"><i class="fa-solid fa-calculator"></i></button>
       <button id="btnMaSet" title="Elegir las medias móviles del gráfico"><i class="fa-solid fa-layer-group"></i></button>
       <button id="btnTogglePremarket" title="Mostrar/ocultar el fuera de horario"><i class="fa-solid fa-sun"></i></button>
+      <button id="btnCruces" title="Escáner de cruces 20/40 en H1"><i class="fa-solid fa-shuffle"></i></button>
       <button id="btnTargets" title="Historial de cambios de precio objetivo"><i class="fa-solid fa-bullseye"></i></button>
       <div class="mapa-wrap">
         <button id="btnMapa" title="Mapa del mercado en Finviz"><i class="fa-solid fa-table-cells-large"></i></button>
@@ -106,6 +107,23 @@
   </main>
 
   <div id="sideDock">
+
+  <aside id="sidebar-cruces" class="hidden">
+    <div class="rangos-head">
+      <span class="rangos-title"><i class="fa-solid fa-shuffle"></i> Cruces 20/40 · H1</span>
+      <div class="rangos-head-actions">
+        <button id="btnScanCruces" title="Escanear ahora"><i class="fa-solid fa-arrows-rotate"></i></button>
+        <button id="btnCloseCruces" title="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    <div class="cruces-niveles">
+      <button class="cr-nivel" data-nivel="suave">Todos</button>
+      <button class="cr-nivel active" data-nivel="medio">Con tendencia</button>
+      <button class="cr-nivel" data-nivel="estricto">Estricto</button>
+    </div>
+    <div id="crucesStatus" class="hint" style="padding:6px 12px;"></div>
+    <div id="crucesList"></div>
+  </aside>
 
   <aside id="sidebar-targets" class="hidden">
     <div class="rangos-head">

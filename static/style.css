@@ -143,6 +143,32 @@ input, select, textarea {
 }
 .mapa-menu button:hover { background: var(--hover); }
 
+/* panel del escáner de cruces 20/40 */
+#sidebar-cruces { background: var(--bg-panel); }
+#sidebar-cruces.hidden { display: none !important; }
+#crucesList { padding: 0 8px 20px; }
+.cruces-niveles { display: flex; gap: 4px; padding: 8px 12px 4px; }
+.cr-nivel {
+  flex: 1; font-size: 11px; padding: 5px 4px; border-radius: 5px;
+  border: 1px solid var(--border); background: var(--bg-panel-2); color: var(--text-dim);
+}
+.cr-nivel.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+#btnScanCruces.scanning i { animation: spin 0.9s linear infinite; }
+.cr-row {
+  padding: 8px; border-radius: 6px; cursor: pointer;
+  border-bottom: 1px solid rgba(140,150,170,0.10);
+}
+.cr-row:hover { background: var(--hover); }
+/* las cuatro medias alineadas son la señal más fuerte: se destacan */
+.cr-row.alineada { background: rgba(59,130,246,0.08); }
+.cr-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.cr-esc { font-size: 11px; }
+.cr-esc i { font-size: 9px; margin-right: 2px; }
+.cr-esc.up { color: var(--green); }
+.cr-esc.down { color: var(--red); }
+.cr-edad { margin-left: auto; font-size: 10px; color: var(--text-dim); }
+.cr-sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+
 /* panel del historial de precios objetivo (derecha) */
 #sidebar-targets { background: var(--bg-panel); }
 #sidebar-targets.hidden { display: none !important; }
@@ -554,6 +580,7 @@ body.splitting.row { cursor: row-resize; }
 #btnRangos.active,
 #btnToques.active,
 #btnTargets.active,
+#btnCruces.active,
 #btnToggleSidebar.active,
 .tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
