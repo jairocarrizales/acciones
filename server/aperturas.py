@@ -16,7 +16,11 @@ from .saltos import MARKET_TZ
 BB_PERIOD = 20
 BB_MULT = 2.0
 
-TEMPORALIDADES = ("m15", "1h", "1d")
+# Se evalúan de mayor a menor y se corta en la primera que falla. El orden importa
+# para la cuota: abrir fuera de las bandas DIARIAS es raro (menos del 1% de las
+# aperturas), así que D1 descarta casi todos los activos con una sola petición,
+# mientras que M15 lo cumple más de la mitad de las veces y apenas filtra.
+TEMPORALIDADES = ("1d", "1h", "m15")
 APERTURA_MIN = 9 * 60 + 30      # 9:30 ET, la campana
 VENTANA_MIN = 30                # hasta las 10:00 se sigue consultando por si el
                                 # dato del proveedor llega con retraso

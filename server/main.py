@@ -1032,12 +1032,14 @@ async def aperturas_fuera_bandas(solo: str = ""):
         if _aperturas_avisadas.get(t) == hoy:
             continue  # ya avisado hoy
         try:
+            # De mayor a menor, cortando en cuanto una falla: si el diario no
+            # está fuera de bandas no se piden 1H ni M15 de ese activo.
             detalles = []
             for tf in ap.TEMPORALIDADES:
                 velas = await _ensure_candles(t, tf)
                 r = ap.evaluar_apertura(velas, tf, hoy)
                 if not r:
-                    break
+                    break  # descartado: no se gastan más peticiones en él
                 detalles.append(r)
             # las tres temporalidades, y todas hacia el mismo lado
             if len(detalles) != len(ap.TEMPORALIDADES):
