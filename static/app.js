@@ -240,6 +240,7 @@ function buildPaneDom(letter) {
       <button class="btn-toggle-vline tool-btn" data-pane="${letter}" title="Línea vertical (un clic)"><svg class="tool-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="12" y1="2" x2="12" y2="22"/><circle cx="12" cy="12" r="2.6" fill="var(--bg-panel-2)"/></svg></button>
       <button class="btn-toggle-rect tool-btn" data-pane="${letter}" title="Rectángulo (dos clics)"><svg class="tool-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="14" height="14"/><circle cx="5" cy="5" r="2.2" fill="var(--bg-panel-2)"/><circle cx="19" cy="5" r="2.2" fill="var(--bg-panel-2)"/><circle cx="5" cy="19" r="2.2" fill="var(--bg-panel-2)"/><circle cx="19" cy="19" r="2.2" fill="var(--bg-panel-2)"/></svg></button>
       <button class="btn-auto-channel tool-btn" data-pane="${letter}" title="Canal automático (sobre las velas visibles)"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+      <button class="btn-toggle-drawings tool-btn" data-pane="${letter}" title="Mostrar/ocultar los dibujos"><i class="fa-solid fa-eye"></i></button>
       <button class="btn-clear-drawings tool-btn" data-pane="${letter}" title="Borrar todos los dibujos del símbolo"><i class="fa-solid fa-trash"></i></button>
       <button class="btn-draw-width tool-btn" data-pane="${letter}" title="Grosor de línea"><span class="width-sample"></span></button>
       <div class="color-picker-wrap" data-pane="${letter}">
@@ -1256,7 +1257,25 @@ function renderDrawing(pane, d) {
 async function loadDrawings(pane) {
   clearDrawingSeries(pane);
   pane.drawings = getSymbolDrawings(pane.symbol);
-  pane.drawings.forEach((d) => renderDrawing(pane, d));
+  // Ocultar es no pintarlos: los dibujos siguen guardados y vuelven intactos al
+  // encender de nuevo, sin dejar primitivas invisibles capturando clics.
+  if (dibujosVisibles()) pane.drawings.forEach((d) => renderDrawing(pane, d));
+}
+
+/** ¿Se muestran los dibujos? Preferencia por navegador, encendida por defecto. */
+function dibujosVisibles() {
+  return localStorage.getItem("dibujosOcultos") !== "1";
+}
+
+/** El ojo se tacha cuando los dibujos están ocultos, en todos los paneles. */
+function pintarBotonDibujos() {
+  const ocultos = !dibujosVisibles();
+  document.querySelectorAll(".btn-toggle-drawings").forEach((b) => {
+    b.classList.toggle("active", ocultos);
+    b.title = ocultos ? "Mostrar los dibujos" : "Ocultar los dibujos";
+    const i = b.querySelector("i");
+    if (i) i.className = ocultos ? "fa-solid fa-eye-slash" : "fa-solid fa-eye";
+  });
 }
 
 // El mismo dibujo se ve en ambas pantallas: tras crear/borrar/recolorear se recargan las dos.
@@ -1376,6 +1395,15 @@ function setupDrawingTool(pane) {
   rectBtn.addEventListener("click", () => setDrawMode(pane, pane.drawMode === "rect" ? null : "rect"));
   document.querySelector(`.btn-auto-channel[data-pane="${pane.letter}"]`).addEventListener("click", () => autoChannel(pane));
   document.querySelector(`.btn-clear-drawings[data-pane="${pane.letter}"]`).addEventListener("click", () => clearAllDrawings(pane));
+
+  // Ocultar/mostrar los dibujos. La preferencia es global y vive en el
+  // navegador, así que se mantiene al cambiar de temporalidad y de símbolo.
+  document.querySelector(`.btn-toggle-drawings[data-pane="${pane.letter}"]`)
+    .addEventListener("click", () => {
+      localStorage.setItem("dibujosOcultos", dibujosVisibles() ? "1" : "0");
+      pintarBotonDibujos();
+      loadAllDrawings();
+    });
 
   // Paleta de color: cambia el color para los próximos dibujos y, si hay un
   // dibujo seleccionado en este panel, lo recolorea al instante.
@@ -3662,6 +3690,7 @@ setLeftCollapsed(localStorage.getItem("leftCollapsed") === "1");
   });
   setActivePane("A");
   applyLayout(); // carga los paneles visibles (los que no tienen velas aún)
+  pintarBotonDibujos(); // refleja si quedaron ocultos en la sesión anterior
   pollAlarmEvents();
   pollAperturas();
   loadTrendScan();
