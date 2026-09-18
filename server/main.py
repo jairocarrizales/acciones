@@ -1057,6 +1057,62 @@ async def aperturas_fuera_bandas(solo: str = ""):
     return {"ventana": True, "items": items}
 
 
+@app.get("/api/aperturas-premarket")
+async def aperturas_premarket(solo: str = ""):
+    """Anticipa la señal antes de la campana usando el precio de premarket.
+
+    El precio actual y el cierre de ayer salen de Yahoo, la misma fuente, para
+    que la comparación sea coherente. Las bandas se calculan con las velas ya
+    cerradas de la sesión anterior.
+    """
+    hoy_dt = datetime.now(saltos.MARKET_TZ)
+    hoy = hoy_dt.year * 10000 + hoy_dt.month * 100 + hoy_dt.day
+
+    tickers = _watchlist_tickers()
+    if solo:
+        pedidos = {t.strip().upper() for t in solo.split(",") if t.strip()}
+        tickers = [t for t in tickers if t in pedidos]
+
+    items = []
+    for t in tickers:
+        try:
+            quote = await md.fetch_session_quote(t)
+            precio = quote.get("price")
+            if not precio:
+                continue
+
+            # de mayor a menor, cortando en la primera que falla
+            detalles = []
+            for tf in ap.TEMPORALIDADES:
+                velas = await _ensure_candles(t, tf)
+                r = ap.evaluar_premarket(velas, tf, precio, hoy)
+                if not r:
+                    break
+                detalles.append(r)
+            if len(detalles) != len(ap.TEMPORALIDADES):
+                continue
+            if len({d["direccion"] for d in detalles}) != 1:
+                continue
+
+            arriba = detalles[0]["direccion"] == "alcista"
+            items.append({
+                "symbol": t,
+                "precio": round(precio, 4),
+                "cierre_ayer": quote.get("previous_close"),
+                "cambio_pct": quote.get("change_pct"),
+                "sesion": quote.get("session"),
+                "direccion": detalles[0]["direccion"],
+                # reversión: si abre disparado se compra PUT, si abre hundido CALL
+                "operacion": "PUT" if arriba else "CALL",
+                "detalles": detalles,
+            })
+        except Exception:
+            pass
+
+    items.sort(key=lambda x: -min(d["distancia_pct"] for d in x["detalles"]))
+    return {"items": items, "hora": hoy_dt.strftime("%H:%M ET")}
+
+
 # ---------------- Escáner de cruces 20/40 en H1 ----------------
 
 # Una vela de H1 tarda una hora en cerrarse, así que refrescar cada 10 minutos
