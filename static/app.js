@@ -3004,16 +3004,14 @@ const settingsModal = document.getElementById("settingsModal");
 document.getElementById("btnSettings").addEventListener("click", async () => {
   const s = await api("/api/settings");
   document.getElementById("apiKeyInput").value = s.api_key || "";
-  document.getElementById("fmpKeyInput").value = s.fmp_api_key || "";
   settingsModal.classList.remove("hidden");
 });
 document.getElementById("btnCloseSettings").addEventListener("click", () => settingsModal.classList.add("hidden"));
 document.getElementById("btnSaveApiKey").addEventListener("click", async () => {
   const key = document.getElementById("apiKeyInput").value.trim();
-  const fmpKey = document.getElementById("fmpKeyInput").value.trim();
   await api("/api/settings/api-key", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ api_key: key, fmp_api_key: fmpKey }),
+    body: JSON.stringify({ api_key: key }),
   });
   settingsModal.classList.add("hidden");
   toast("API key guardada.");
