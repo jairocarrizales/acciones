@@ -2213,16 +2213,16 @@ function applyTargetPriceLine(pane) {
   if (pane.targetPrice && pane.targetPrice.average) {
     // Si los analistas lo han movido hace poco, la propia línea lo anuncia con
     // la fecha del cambio: así se ve en el gráfico, sin ventanas emergentes.
-    // Naranja siempre; verde solo el día en que los analistas lo movieron.
+    // Naranja siempre; verde solo el día en que los analistas lo movieron. La
+    // etiqueta se queda en "TP": el precio ya lo muestra el eje, repetirlo en la
+    // línea ensucia el gráfico.
     const cambioHoy = pane.targetCambio;
     pane.targetPriceLine = pane.candleSeries.createPriceLine({
       price: pane.targetPrice.average,
       color: cambioHoy ? "#22c55e" : "#f97316",
       lineWidth: 2,
       lineStyle: LC.LineStyle.Solid, axisLabelVisible: true,
-      title: cambioHoy
-        ? `New Target $${pane.targetPrice.average.toFixed(2)}`
-        : `Target $${pane.targetPrice.average.toFixed(2)}`,
+      title: "TP",
     });
   }
 }
