@@ -25,6 +25,12 @@ APERTURA_MIN = 9 * 60 + 30      # 9:30 ET, la campana
 VENTANA_MIN = 30                # hasta las 10:00 se sigue consultando por si el
                                 # dato del proveedor llega con retraso
 
+# Separación mínima de la banda para que el aviso valga la pena. Sin umbral, una
+# apertura que supera la banda por milésimas cuenta igual que una que se va un 4%:
+# en el gráfico la primera es indistinguible de un empate. Medido sobre 250
+# aperturas reales, 0.25% deja las que se ven a simple vista.
+SEPARACION_MIN_PCT = 0.25
+
 # Minutos que abarca cada vela, para saber cuál contiene la campana de las 9:30
 DURACION_MIN = {"m2": 2, "m3": 3, "m5": 5, "m10": 10, "m15": 15, "m30": 30, "1h": 60}
 
@@ -99,12 +105,16 @@ def evaluar_apertura(candles, interval, hoy):
     else:
         return None
 
+    distancia = abs(precio / banda - 1) * 100
+    if distancia < SEPARACION_MIN_PCT:
+        return None  # roza la banda: no es un salto, es un empate
+
     return {
         "tf": interval,
         "direccion": lado,
         "apertura": round(precio, 4),
         "banda": round(banda, 4),
-        "distancia_pct": round(abs(precio / banda - 1) * 100, 2),
+        "distancia_pct": round(distancia, 2),
     }
 
 
