@@ -61,8 +61,13 @@ def evaluar_apertura(candles, interval, hoy):
 
     # vela de apertura de hoy: en intradía la de las 9:30, en diario la del día
     if interval == "1d":
-        apertura = candles[-1] if _dia(candles[-1]["time"]) == hoy else None
-        previas = candles[:-1]
+        # se busca la vela del día pedido, no solo la última: así el detector
+        # puede evaluarse también sobre días pasados
+        apertura = previas = None
+        for i, c in enumerate(candles):
+            if _dia(c["time"]) == hoy:
+                apertura, previas = c, candles[:i]
+                break
     else:
         # La PRIMERA vela de la sesión de hoy, la que contiene la campana. En M15
         # arranca a las 9:30; en 1H la vela va alineada a la hora en punto (09:00,
