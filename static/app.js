@@ -2182,16 +2182,14 @@ class SessionMarksPrimitive {
   }
 }
 
-// Días que un cambio de precio objetivo sigue anunciándose en la línea
-const TARGET_AVISO_DIAS = 14;
-
-/** Último cambio del objetivo de este símbolo, si es reciente. */
+/** ¿Cambió HOY el objetivo de este símbolo? Solo el día del cambio se destaca;
+ *  al día siguiente la línea vuelve a su color de siempre. */
 async function cambioRecienteTarget(symbol) {
   try {
     const r = await api("/api/target-log");
-    const hoy = new Date();
-    return (r.items || []).find((t) => t.symbol === symbol &&
-      (hoy - new Date(t.fecha + "T12:00:00")) / 86400000 <= TARGET_AVISO_DIAS) || null;
+    // el registro guarda la fecha de mercado, así que se compara en hora de NY
+    const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    return (r.items || []).find((t) => t.symbol === symbol && t.fecha === hoy) || null;
   } catch (_) {
     return null;
   }
@@ -2215,14 +2213,15 @@ function applyTargetPriceLine(pane) {
   if (pane.targetPrice && pane.targetPrice.average) {
     // Si los analistas lo han movido hace poco, la propia línea lo anuncia con
     // la fecha del cambio: así se ve en el gráfico, sin ventanas emergentes.
-    const cambio = pane.targetCambio;
+    // Naranja siempre; verde solo el día en que los analistas lo movieron.
+    const cambioHoy = pane.targetCambio;
     pane.targetPriceLine = pane.candleSeries.createPriceLine({
       price: pane.targetPrice.average,
-      color: cambio ? "#22c55e" : "#facc15",
-      lineWidth: cambio ? 3 : 2,
+      color: cambioHoy ? "#22c55e" : "#f97316",
+      lineWidth: 2,
       lineStyle: LC.LineStyle.Solid, axisLabelVisible: true,
-      title: cambio
-        ? `New Target Price $${pane.targetPrice.average.toFixed(2)} · ${fechaCorta(cambio.fecha)}`
+      title: cambioHoy
+        ? `New Target $${pane.targetPrice.average.toFixed(2)}`
         : `Target $${pane.targetPrice.average.toFixed(2)}`,
     });
   }
