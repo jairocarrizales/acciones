@@ -3096,6 +3096,13 @@ async function escanearPremkt(todos = false) {
   try {
     const q = usarFavs ? `?solo=${encodeURIComponent(favs.join(","))}` : "";
     const r = await api("/api/aperturas-premarket" + q);
+    if (r.cerrado) {
+      // fuera de la franja de premarket la estimación no aplica
+      document.getElementById("premktList").innerHTML =
+        `<p class="hint" style="padding:0 12px;">${r.aviso}</p>`;
+      st.textContent = `Premarket cerrado · ${r.hora || ""}`;
+      return;
+    }
     renderPremkt(r.items || []);
     st.textContent = `${(r.items || []).length} fuera de bandas · `
       + `${usarFavs ? "favoritos" : "toda la lista"} · ${r.hora || ""}`;

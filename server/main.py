@@ -1068,6 +1068,16 @@ async def aperturas_premarket(solo: str = ""):
     hoy_dt = datetime.now(saltos.MARKET_TZ)
     hoy = hoy_dt.year * 10000 + hoy_dt.month * 100 + hoy_dt.day
 
+    # Con el mercado abierto esta estimación deja de tener sentido: el precio ya
+    # es de la sesión en marcha y compararlo contra las bandas de ayer da señales
+    # que el escáner real no confirma. Ahí manda el escáner de apertura.
+    minutos = hoy_dt.hour * 60 + hoy_dt.minute
+    if minutos >= ap.APERTURA_MIN and hoy_dt.weekday() < 5:
+        return {"items": [], "hora": hoy_dt.strftime("%H:%M ET"),
+                "cerrado": True,
+                "aviso": "El mercado ya abrió: usa el escáner de apertura, "
+                         "que compara el precio real de las 9:30."}
+
     tickers = _watchlist_tickers()
     if solo:
         pedidos = {t.strip().upper() for t in solo.split(",") if t.strip()}
