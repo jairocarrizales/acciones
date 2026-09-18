@@ -143,6 +143,25 @@ input, select, textarea {
 }
 .mapa-menu button:hover { background: var(--hover); }
 
+/* panel del escáner de premarket */
+#sidebar-premkt { background: var(--bg-panel); }
+#sidebar-premkt.hidden { display: none !important; }
+#premktList { padding: 0 8px 20px; }
+#btnScanPremkt.scanning i { animation: spin 0.9s linear infinite; }
+.pk-row {
+  padding: 8px; border-radius: 6px; cursor: pointer;
+  border-bottom: 1px solid rgba(140,150,170,0.10);
+}
+.pk-row:hover { background: var(--hover); }
+.pk-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+/* la operación que sugiere la reversión, no la dirección del hueco */
+.pk-op { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 4px; }
+.pk-op.call { background: rgba(34,197,94,0.22); color: var(--green); }
+.pk-op.put { background: rgba(239,68,68,0.22); color: var(--red); }
+.pk-cambio { margin-left: auto; font-size: 11px; font-weight: 700; }
+.pk-cambio.up { color: var(--green); } .pk-cambio.down { color: var(--red); }
+.pk-sub { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+
 /* panel del escáner de cruces 20/40 */
 #sidebar-cruces { background: var(--bg-panel); }
 #sidebar-cruces.hidden { display: none !important; }
@@ -581,6 +600,7 @@ body.splitting.row { cursor: row-resize; }
 #btnToques.active,
 #btnTargets.active,
 #btnCruces.active,
+#btnPremkt.active,
 #btnToggleSidebar.active,
 .tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 

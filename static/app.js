@@ -3062,6 +3062,78 @@ function sincronizarDock() {
     Object.values(panes).forEach((p) => { if (p.candles.length) focusLatest(p); }));
 }
 
+// ---------------- escáner de premarket ----------------
+// Antes de la campana no existe la vela de apertura, pero el precio que cotiza
+// en premarket adelanta por dónde va a abrir. Se compara contra las bandas ya
+// cerradas de ayer, que son las que se verán en el gráfico al abrir.
+
+const premktPanel = document.getElementById("sidebar-premkt");
+
+function abrirPremkt() {
+  premktPanel.classList.remove("hidden");
+  document.getElementById("btnPremkt").classList.add("active");
+  sincronizarDock();
+  if (!document.getElementById("premktList").innerHTML) escanearPremkt();
+}
+
+function cerrarPremkt() {
+  premktPanel.classList.add("hidden");
+  document.getElementById("btnPremkt").classList.remove("active");
+  sincronizarDock();
+}
+
+async function escanearPremkt() {
+  const btn = document.getElementById("btnScanPremkt");
+  const st = document.getElementById("premktStatus");
+  btn.disabled = true;
+  btn.classList.add("scanning");
+  st.textContent = "Consultando precios de premarket…";
+  try {
+    const favs = getLocalFavs();
+    const q = favs.length ? `?solo=${encodeURIComponent(favs.join(","))}` : "";
+    const r = await api("/api/aperturas-premarket" + q);
+    renderPremkt(r.items || []);
+    st.textContent = `${(r.items || []).length} fuera de bandas · ${r.hora || ""}`;
+  } catch (e) {
+    st.textContent = "Error: " + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("scanning");
+  }
+}
+
+function renderPremkt(items) {
+  const list = document.getElementById("premktList");
+  if (!items.length) {
+    list.innerHTML = `<p class="hint" style="padding:0 12px;">Ningún favorito cotiza fuera de sus bandas ahora mismo.</p>`;
+    return;
+  }
+  list.innerHTML = items.map((it) => {
+    // reversión: abre disparado -> PUT; abre hundido -> CALL
+    const esCall = it.operacion === "CALL";
+    const det = it.detalles.map((d) => `${d.tf.toUpperCase()} ${d.distancia_pct}%`).join(" · ");
+    const cambio = it.cambio_pct != null ? `${it.cambio_pct >= 0 ? "+" : ""}${it.cambio_pct.toFixed(2)}%` : "";
+    return `<div class="pk-row" data-ticker="${it.symbol}">
+        <div class="pk-top">
+          <b>${it.symbol}</b>
+          <span class="pk-op ${esCall ? "call" : "put"}">${it.operacion}</span>
+          <span class="pk-cambio ${it.cambio_pct >= 0 ? "up" : "down"}">${cambio}</span>
+        </div>
+        <div class="pk-sub">
+          $${it.precio.toFixed(2)} · ayer cerró $${(it.cierre_ayer || 0).toFixed(2)}
+        </div>
+        <div class="pk-sub">${det}</div>
+      </div>`;
+  }).join("");
+  list.querySelectorAll(".pk-row").forEach((r) =>
+    r.addEventListener("click", () => selectSymbol(r.dataset.ticker)));
+}
+
+document.getElementById("btnPremkt").addEventListener("click", () =>
+  premktPanel.classList.contains("hidden") ? abrirPremkt() : cerrarPremkt());
+document.getElementById("btnClosePremkt").addEventListener("click", cerrarPremkt);
+document.getElementById("btnScanPremkt").addEventListener("click", escanearPremkt);
+
 // ---------------- escáner de cruces 20/40 en H1 ----------------
 // Un cruce suelto dice poco: lo que importa es qué hacen las medias largas
 // cuando ocurre. Cada uno se etiqueta con su escenario en vez de descartarlo.

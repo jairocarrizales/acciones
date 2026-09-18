@@ -40,6 +40,7 @@
       <button id="btnMaSet" title="Elegir las medias móviles del gráfico"><i class="fa-solid fa-layer-group"></i></button>
       <button id="btnTogglePremarket" title="Mostrar/ocultar el fuera de horario"><i class="fa-solid fa-sun"></i></button>
       <button id="btnCruces" title="Escáner de cruces 20/40 en H1"><i class="fa-solid fa-shuffle"></i></button>
+      <button id="btnPremkt" title="Escáner de premarket: precio fuera de las bandas antes de abrir"><i class="fa-solid fa-bell"></i></button>
       <button id="btnTargets" title="Historial de cambios de precio objetivo"><i class="fa-solid fa-bullseye"></i></button>
       <div class="mapa-wrap">
         <button id="btnMapa" title="Mapa del mercado en Finviz"><i class="fa-solid fa-table-cells-large"></i></button>
@@ -107,6 +108,18 @@
   </main>
 
   <div id="sideDock">
+
+  <aside id="sidebar-premkt" class="hidden">
+    <div class="rangos-head">
+      <span class="rangos-title"><i class="fa-solid fa-bell"></i> Premarket · fuera de bandas</span>
+      <div class="rangos-head-actions">
+        <button id="btnScanPremkt" title="Consultar ahora"><i class="fa-solid fa-arrows-rotate"></i></button>
+        <button id="btnClosePremkt" title="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    <div id="premktStatus" class="hint" style="padding:6px 12px;"></div>
+    <div id="premktList"></div>
+  </aside>
 
   <aside id="sidebar-cruces" class="hidden">
     <div class="rangos-head">
