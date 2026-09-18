@@ -118,6 +118,47 @@ def evaluar_apertura(candles, interval, hoy):
     }
 
 
+def evaluar_premarket(candles, interval, precio, hoy):
+    """¿El precio de premarket queda fuera de las bandas de la sesión anterior?
+
+    En premarket la vela de apertura todavía no existe, así que se toma el precio
+    que cotiza ahora como estimación de dónde abrirá y se compara contra las
+    bandas ya cerradas de ayer, que son las que se verán en el gráfico al sonar
+    la campana. La regla es la misma del escáner real, solo que anticipada.
+    """
+    if not candles or len(candles) < BB_PERIOD + 1 or not precio:
+        return None
+
+    # solo velas anteriores a hoy: las bandas deben estar cerradas
+    previas = [c for c in candles if _dia(c["time"]) < hoy]
+    if len(previas) < BB_PERIOD:
+        return None
+
+    sup, inf = _bandas([c["close"] for c in previas])
+    if sup is None:
+        return None
+
+    if precio > sup:
+        lado, banda = "alcista", sup
+    elif precio < inf:
+        lado, banda = "bajista", inf
+    else:
+        return None
+
+    distancia = abs(precio / banda - 1) * 100
+    if distancia < SEPARACION_MIN_PCT:
+        return None
+
+    return {
+        "tf": interval,
+        "direccion": lado,
+        # en premarket el "precio de apertura" es una estimación: lo que cotiza ahora
+        "apertura": round(precio, 4),
+        "banda": round(banda, 4),
+        "distancia_pct": round(distancia, 2),
+    }
+
+
 def en_ventana_apertura(ahora=None):
     """¿Estamos en la franja en que tiene sentido evaluar la apertura?"""
     n = ahora or datetime.now(MARKET_TZ)
