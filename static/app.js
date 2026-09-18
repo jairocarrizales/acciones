@@ -3073,7 +3073,7 @@ function abrirPremkt() {
   premktPanel.classList.remove("hidden");
   document.getElementById("btnPremkt").classList.add("active");
   sincronizarDock();
-  if (!document.getElementById("premktList").innerHTML) escanearPremkt();
+  if (!document.getElementById("premktList").innerHTML) escanearPremkt(false);
 }
 
 function cerrarPremkt() {
@@ -3082,18 +3082,23 @@ function cerrarPremkt() {
   sincronizarDock();
 }
 
-async function escanearPremkt() {
-  const btn = document.getElementById("btnScanPremkt");
+async function escanearPremkt(todos = false) {
+  const btn = document.getElementById(todos ? "btnScanPremktAll" : "btnScanPremkt");
   const st = document.getElementById("premktStatus");
   btn.disabled = true;
   btn.classList.add("scanning");
-  st.textContent = "Consultando precios de premarket…";
+  // Las bandas salen de Twelve Data, así que recorrer la lista entera cuesta una
+  // llamada por activo: por defecto solo los favoritos.
+  const favs = getLocalFavs();
+  const usarFavs = !todos && favs.length > 0;
+  st.textContent = usarFavs
+    ? `Consultando ${favs.length} favoritos…` : "Consultando toda la lista…";
   try {
-    const favs = getLocalFavs();
-    const q = favs.length ? `?solo=${encodeURIComponent(favs.join(","))}` : "";
+    const q = usarFavs ? `?solo=${encodeURIComponent(favs.join(","))}` : "";
     const r = await api("/api/aperturas-premarket" + q);
     renderPremkt(r.items || []);
-    st.textContent = `${(r.items || []).length} fuera de bandas · ${r.hora || ""}`;
+    st.textContent = `${(r.items || []).length} fuera de bandas · `
+      + `${usarFavs ? "favoritos" : "toda la lista"} · ${r.hora || ""}`;
   } catch (e) {
     st.textContent = "Error: " + e.message;
   } finally {
@@ -3132,7 +3137,8 @@ function renderPremkt(items) {
 document.getElementById("btnPremkt").addEventListener("click", () =>
   premktPanel.classList.contains("hidden") ? abrirPremkt() : cerrarPremkt());
 document.getElementById("btnClosePremkt").addEventListener("click", cerrarPremkt);
-document.getElementById("btnScanPremkt").addEventListener("click", escanearPremkt);
+document.getElementById("btnScanPremkt").addEventListener("click", () => escanearPremkt(false));
+document.getElementById("btnScanPremktAll").addEventListener("click", () => escanearPremkt(true));
 
 // ---------------- escáner de cruces 20/40 en H1 ----------------
 // Un cruce suelto dice poco: lo que importa es qué hacen las medias largas

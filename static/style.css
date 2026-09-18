@@ -147,7 +147,7 @@ input, select, textarea {
 #sidebar-premkt { background: var(--bg-panel); }
 #sidebar-premkt.hidden { display: none !important; }
 #premktList { padding: 0 8px 20px; }
-#btnScanPremkt.scanning i { animation: spin 0.9s linear infinite; }
+#btnScanPremkt.scanning i, #btnScanPremktAll.scanning i { animation: spin 0.9s linear infinite; }
 .pk-row {
   padding: 8px; border-radius: 6px; cursor: pointer;
   border-bottom: 1px solid rgba(140,150,170,0.10);
