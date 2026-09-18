@@ -2182,12 +2182,28 @@ class SessionMarksPrimitive {
   }
 }
 
+// Días que un cambio de precio objetivo sigue anunciándose en la línea
+const TARGET_AVISO_DIAS = 14;
+
+/** Último cambio del objetivo de este símbolo, si es reciente. */
+async function cambioRecienteTarget(symbol) {
+  try {
+    const r = await api("/api/target-log");
+    const hoy = new Date();
+    return (r.items || []).find((t) => t.symbol === symbol &&
+      (hoy - new Date(t.fecha + "T12:00:00")) / 86400000 <= TARGET_AVISO_DIAS) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function loadTargetPrice(pane) {
   try {
     pane.targetPrice = await api(`/api/target-price/${pane.symbol}`);
   } catch (_) {
     pane.targetPrice = null;
   }
+  pane.targetCambio = await cambioRecienteTarget(pane.symbol);
   applyTargetPriceLine(pane);
 }
 
@@ -2197,10 +2213,17 @@ function applyTargetPriceLine(pane) {
     pane.targetPriceLine = null;
   }
   if (pane.targetPrice && pane.targetPrice.average) {
+    // Si los analistas lo han movido hace poco, la propia línea lo anuncia con
+    // la fecha del cambio: así se ve en el gráfico, sin ventanas emergentes.
+    const cambio = pane.targetCambio;
     pane.targetPriceLine = pane.candleSeries.createPriceLine({
-      price: pane.targetPrice.average, color: "#facc15", lineWidth: 2,
+      price: pane.targetPrice.average,
+      color: cambio ? "#22c55e" : "#facc15",
+      lineWidth: cambio ? 3 : 2,
       lineStyle: LC.LineStyle.Solid, axisLabelVisible: true,
-      title: `Target $${pane.targetPrice.average.toFixed(2)}`,
+      title: cambio
+        ? `New Target Price $${pane.targetPrice.average.toFixed(2)} · ${fechaCorta(cambio.fecha)}`
+        : `Target $${pane.targetPrice.average.toFixed(2)}`,
     });
   }
 }
@@ -3212,40 +3235,8 @@ document.getElementById("btnTargets").addEventListener("click", () =>
 document.getElementById("btnCloseTargets").addEventListener("click", cerrarTargets);
 document.getElementById("btnReloadTargets").addEventListener("click", cargarHistorialTargets);
 
-/** Modal de bienvenida con los precios objetivo que cambiaron hace poco. */
-async function mostrarAvisos() {
-  try {
-    const r = await api("/api/avisos");
-    const filas = r.targets || [];
-    if (!filas.length) return;
-    // una vez al día basta: no reaparece al recargar la página
-    const hoy = new Date().toLocaleDateString("en-CA");
-    if (localStorage.getItem("avisosVistos") === hoy) return;
-
-    document.getElementById("avisosBody").innerHTML = filas.map((t) => {
-      const sube = t.anterior != null && t.valor > t.anterior;
-      const flecha = t.anterior == null ? "" :
-        `<span class="aviso-delta ${sube ? "up" : "down"}">
-           $${t.anterior.toFixed(2)} <i class="fa-solid fa-arrow-right"></i> $${t.valor.toFixed(2)}</span>`;
-      return `<div class="aviso-row" data-ticker="${t.symbol}">
-          <b>${t.symbol}</b> ${flecha}
-          <span class="aviso-fecha">${fechaCorta(t.fecha)}</span>
-        </div>`;
-    }).join("");
-
-    const modal = document.getElementById("avisosModal");
-    modal.classList.remove("hidden");
-    modal.querySelectorAll(".aviso-row").forEach((row) =>
-      row.addEventListener("click", () => {
-        selectSymbol(row.dataset.ticker);
-        modal.classList.add("hidden");
-      }));
-    document.getElementById("btnCloseAvisos").addEventListener("click", () => {
-      modal.classList.add("hidden");
-      localStorage.setItem("avisosVistos", hoy);
-    });
-  } catch (_) { /* los avisos no son críticos */ }
-}
+// El modal de bienvenida se retiró: los cambios de precio objetivo se anuncian
+// en la propia línea del gráfico, y el historial completo sigue en su panel.
 
 const FINVIZ_MAPA = "https://finviz.com/map";
 const btnMapa = document.getElementById("btnMapa");
@@ -3696,7 +3687,6 @@ setLeftCollapsed(localStorage.getItem("leftCollapsed") === "1");
   loadTrendScan();
   pollSaltos();
   cargarFed();
-  mostrarAvisos();
   liveTick(); // vela en curso en vivo con el mercado abierto
 })();
 
