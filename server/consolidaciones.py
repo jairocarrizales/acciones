@@ -140,6 +140,9 @@ def detectar(candles, medias, nivel="medio"):
     return {
         "techo": round(techo, 4),
         "suelo": round(suelo, 4),
+        # extremos temporales de la ventana, para poder dibujar el rango
+        "desde": ventana[0]["time"],
+        "hasta": ventana[-1]["time"],
         "ancho_pct": round(alto / ultimo * 100, 2),
         # dónde está el precio dentro del rango: cerca de 100 es pegado al techo
         "posicion_pct": round((ultimo - suelo) / alto * 100, 1) if alto else None,
