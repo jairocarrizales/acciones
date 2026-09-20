@@ -40,6 +40,7 @@
       <button id="btnMaSet" title="Elegir las medias móviles del gráfico"><i class="fa-solid fa-layer-group"></i></button>
       <button id="btnTogglePremarket" title="Mostrar/ocultar el fuera de horario"><i class="fa-solid fa-sun"></i></button>
       <button id="btnCruces" title="Escáner de cruces 20/40 en H1"><i class="fa-solid fa-shuffle"></i></button>
+      <button id="btnConsol" title="Escáner de consolidaciones en H1"><i class="fa-solid fa-arrows-left-right-to-line"></i></button>
       <button id="btnPremkt" title="Escáner de premarket: precio fuera de las bandas antes de abrir"><i class="fa-solid fa-bell"></i></button>
       <button id="btnTargets" title="Historial de cambios de precio objetivo"><i class="fa-solid fa-bullseye"></i></button>
       <div class="mapa-wrap">
@@ -120,6 +121,24 @@
     </div>
     <div id="premktStatus" class="hint" style="padding:6px 12px;"></div>
     <div id="premktList"></div>
+  </aside>
+
+  <aside id="sidebar-consol" class="hidden">
+    <div class="rangos-head">
+      <span class="rangos-title"><i class="fa-solid fa-arrows-left-right-to-line"></i> Consolidaciones · H1</span>
+      <div class="rangos-head-actions">
+        <button id="btnScanConsol" title="Escanear ahora"><i class="fa-solid fa-arrows-rotate"></i></button>
+        <button id="btnRupturas" title="Ver cuáles están rompiendo el rango"><i class="fa-solid fa-bolt"></i></button>
+        <button id="btnCloseConsol" title="Cerrar"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    <div class="cruces-niveles">
+      <button class="cn-nivel" data-nivel="suave">Amplio</button>
+      <button class="cn-nivel active" data-nivel="medio">Medio</button>
+      <button class="cn-nivel" data-nivel="estricto">Estricto</button>
+    </div>
+    <div id="consolStatus" class="hint" style="padding:6px 12px;"></div>
+    <div id="consolList"></div>
   </aside>
 
   <aside id="sidebar-cruces" class="hidden">

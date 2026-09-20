@@ -3145,6 +3145,121 @@ document.getElementById("btnClosePremkt").addEventListener("click", cerrarPremkt
 document.getElementById("btnScanPremkt").addEventListener("click", () => escanearPremkt(false));
 document.getElementById("btnScanPremktAll").addEventListener("click", () => escanearPremkt(true));
 
+// ---------------- escáner de consolidaciones en H1 ----------------
+// Activos que llevan diez días o más en rango. La barra de posición indica dónde
+// está el precio dentro de ese rango: pegado a un extremo es candidato a romper.
+
+const consolPanel = document.getElementById("sidebar-consol");
+let cnNivel = localStorage.getItem("consolNivel") || "medio";
+
+function abrirConsol() {
+  consolPanel.classList.remove("hidden");
+  document.getElementById("btnConsol").classList.add("active");
+  sincronizarDock();
+  if (!document.getElementById("consolList").innerHTML) escanearConsol();
+}
+
+function cerrarConsol() {
+  consolPanel.classList.add("hidden");
+  document.getElementById("btnConsol").classList.remove("active");
+  sincronizarDock();
+}
+
+function consolQuery() {
+  const favs = getLocalFavs();
+  return favs.length ? `&solo=${encodeURIComponent(favs.join(","))}` : "";
+}
+
+async function escanearConsol(forzar = false) {
+  const btn = document.getElementById("btnScanConsol");
+  const st = document.getElementById("consolStatus");
+  btn.disabled = true;
+  btn.classList.add("scanning");
+  st.textContent = "Buscando rangos en H1…";
+  try {
+    const r = await api(`/api/consolidaciones?nivel=${cnNivel}${consolQuery()}`
+      + (forzar ? "&refresh=true" : ""));
+    renderConsol(r.items || []);
+    st.textContent = `${(r.items || []).length} consolidando`
+      + (r.cacheado ? " · desde caché" : "");
+  } catch (e) {
+    st.textContent = "Error al escanear: " + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("scanning");
+  }
+}
+
+/** De los que consolidan, cuáles tienen ya el precio fuera del rango. */
+async function verRupturas() {
+  const btn = document.getElementById("btnRupturas");
+  const st = document.getElementById("consolStatus");
+  btn.disabled = true;
+  btn.classList.add("scanning");
+  st.textContent = "Comprobando rupturas…";
+  try {
+    const r = await api(`/api/consolidaciones/rupturas?nivel=${cnNivel}${consolQuery()}`);
+    renderConsol(r.items || [], true);
+    st.textContent = `${(r.items || []).length} rompiendo el rango · ${r.hora || ""}`;
+  } catch (e) {
+    st.textContent = "Error: " + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("scanning");
+  }
+}
+
+function renderConsol(items, esRuptura = false) {
+  const list = document.getElementById("consolList");
+  if (!items.length) {
+    list.innerHTML = `<p class="hint" style="padding:0 12px;">${
+      esRuptura ? "Ninguno ha salido de su rango." : "Ningún activo consolidando en este nivel."}</p>`;
+    return;
+  }
+  list.innerHTML = items.map((c) => {
+    const pos = c.posicion_pct ?? 50;
+    // cerca de un extremo es lo accionable: se resalta
+    const zona = pos >= 80 ? "arriba" : pos <= 20 ? "abajo" : "";
+    const rotura = c.lado
+      ? `<span class="cn-rotura ${c.lado === "alza" ? "up" : "down"}">
+           <i class="fa-solid fa-bolt"></i> rompe ${c.lado} ${c.exceso_pct}%</span>`
+      : "";
+    return `<div class="cn-row${c.lado ? " roto" : ""}" data-ticker="${c.symbol}">
+        <div class="cn-top">
+          <b>${c.symbol}</b>
+          ${rotura || `<span class="cn-dias">${c.dias} días</span>`}
+          <span class="cn-ancho">${c.ancho_pct}%</span>
+        </div>
+        <div class="cn-sub">$${c.suelo.toFixed(2)} — $${c.techo.toFixed(2)}${
+          c.precio ? ` · ahora $${c.precio.toFixed(2)}` : ""}</div>
+        <div class="cn-barra" title="posición del precio en el rango">
+          <span class="cn-marca ${zona}" style="left:${Math.max(0, Math.min(100, pos))}%"></span>
+        </div>
+        <div class="cn-sub">100/200 al ${c.separacion_100_200}% · squeeze ${c.squeeze}${
+          c.cruces_100_200 ? ` · ${c.cruces_100_200} cruce(s)` : ""}</div>
+      </div>`;
+  }).join("");
+  list.querySelectorAll(".cn-row").forEach((r) =>
+    r.addEventListener("click", () => selectSymbol(r.dataset.ticker)));
+}
+
+document.getElementById("btnConsol").addEventListener("click", () =>
+  consolPanel.classList.contains("hidden") ? abrirConsol() : cerrarConsol());
+document.getElementById("btnCloseConsol").addEventListener("click", cerrarConsol);
+document.getElementById("btnScanConsol").addEventListener("click", () => escanearConsol(true));
+document.getElementById("btnRupturas").addEventListener("click", verRupturas);
+
+document.querySelectorAll(".cn-nivel").forEach((b) => {
+  b.classList.toggle("active", b.dataset.nivel === cnNivel);
+  b.addEventListener("click", () => {
+    cnNivel = b.dataset.nivel;
+    localStorage.setItem("consolNivel", cnNivel);
+    document.querySelectorAll(".cn-nivel").forEach((x) =>
+      x.classList.toggle("active", x.dataset.nivel === cnNivel));
+    escanearConsol();
+  });
+});
+
 // ---------------- escáner de cruces 20/40 en H1 ----------------
 // Un cruce suelto dice poco: lo que importa es qué hacen las medias largas
 // cuando ocurre. Cada uno se etiqueta con su escenario en vez de descartarlo.
