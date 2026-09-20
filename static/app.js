@@ -137,6 +137,10 @@ function localGet(key, fallback) {
 function localSet(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
 
 const getLocalFavs = () => localGet("favTickers", []);
+
+// Último escaneo de consolidaciones, para repintar el rango al cambiar de símbolo
+// o de temporalidad. Se declara aquí porque loadCandles lo consulta.
+let consolUltimos = [];
 const setLocalFavs = (a) => localSet("favTickers", a);
 const getLocalHearts = () => localGet("saltosHeartsLocal", []);
 const setLocalHearts = (a) => localSet("saltosHeartsLocal", a);
@@ -307,6 +311,7 @@ function createPane(letter, defaultInterval) {
     extVisible: localStorage.getItem("premarketVisible") === "1", // sesión extendida (pre/post)
     extPrimitive: null,
     targetPriceLine: null, alarmPriceLines: [], sessionPrimitive: null, prevClose: null, weekCloses: [],
+    consolPrimitive: null,
     interval: defaultInterval, candles: [],
     maConfig: [], dailyCandles: [], targetPrice: null, alarms: [], earnings: [],
     trendPrimitives: [], drawings: [], selectedDrawingId: null,
@@ -789,12 +794,13 @@ class RectPaneRenderer {
       const x = Math.min(x1, x2), y = Math.min(y1, y2);
       const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
       ctx.save();
-      ctx.fillStyle = colorWithAlpha(o.color, 0.18);
+      ctx.fillStyle = colorWithAlpha(o.color, o.alpha ?? 0.18);
       ctx.fillRect(x, y, w, h);
-      // el rectángulo va sin borde: solo se marca mientras está seleccionado,
-      // para poder verlo al arrastrarlo o redimensionarlo
-      if (o.selected) {
-        ctx.lineWidth = (o.width + 1) * scope.horizontalPixelRatio;
+      // Los rectángulos dibujados a mano van sin borde y solo se marcan al
+      // seleccionarlos; los punteados (la marca del escáner) sí lo llevan, porque
+      // sin él el rango perdería sus límites.
+      if (o.selected || o.dashed) {
+        ctx.lineWidth = (o.selected ? o.width + 1 : o.width) * scope.horizontalPixelRatio;
         ctx.strokeStyle = o.color;
         if (o.dashed) ctx.setLineDash([6 * scope.horizontalPixelRatio, 4 * scope.horizontalPixelRatio]);
         ctx.strokeRect(x, y, w, h);
@@ -1616,6 +1622,8 @@ async function loadCandles(pane, forceRefresh) {
     pane.candleSeries.attachPrimitive(pane.extPrimitive);
   }
   applyPrevCloseLine(pane); // separadores de día + cierre anterior sobre el día actual
+  // el rango consolidado, si el símbolo salió en el último escaneo
+  pintarRangoConsol(pane, (consolUltimos || []).find((c) => c.symbol === pane.symbol) || null);
   focusLatest(pane);
   // Reactiva el auto-escalado del eje de precios: al cambiar de activo (o temporalidad)
   // el gráfico vuelve a centrarse en el nuevo rango de precios, aunque el usuario haya
@@ -3146,6 +3154,34 @@ document.getElementById("btnScanPremkt").addEventListener("click", () => escanea
 document.getElementById("btnScanPremktAll").addEventListener("click", () => escanearPremkt(true));
 
 // ---------------- escáner de consolidaciones en H1 ----------------
+
+/** Dibuja el rango consolidado sobre el gráfico del panel.
+ *
+ *  Es una primitiva del propio panel, no un dibujo del usuario: no se guarda, no
+ *  aparece en la papelera y desaparece al cambiar de símbolo. Se reaprovecha
+ *  RectPrimitive, el mismo rectángulo de la barra de herramientas.
+ */
+function pintarRangoConsol(pane, rango) {
+  if (pane.consolPrimitive) {
+    try { pane.candleSeries.detachPrimitive(pane.consolPrimitive); } catch (_) {}
+    pane.consolPrimitive = null;
+  }
+  if (!rango) return;
+  const p = new RectPrimitive(pane,
+    { time: rango.desde, price: rango.techo },
+    { time: rango.hasta, price: rango.suelo },
+    { color: "#facc15", width: 1, dashed: true, alpha: 0.06 });
+  pane.candleSeries.attachPrimitive(p);
+  pane.consolPrimitive = p;
+}
+
+/** Busca el rango del símbolo en la última lista escaneada y lo dibuja. */
+function marcarConsolEnPaneles(items) {
+  const porSimbolo = new Map((items || []).map((c) => [c.symbol, c]));
+  Object.values(panes).forEach((p) =>
+    pintarRangoConsol(p, porSimbolo.get(p.symbol) || null));
+}
+
 // Activos que llevan diez días o más en rango. La barra de posición indica dónde
 // está el precio dentro de ese rango: pegado a un extremo es candidato a romper.
 
@@ -3180,6 +3216,8 @@ async function escanearConsol(forzar = false) {
     const r = await api(`/api/consolidaciones?nivel=${cnNivel}${consolQuery()}`
       + (forzar ? "&refresh=true" : ""));
     renderConsol(r.items || []);
+    consolUltimos = r.items || [];
+    marcarConsolEnPaneles(consolUltimos);
     st.textContent = `${(r.items || []).length} consolidando`
       + (r.cacheado ? " · desde caché" : "");
   } catch (e) {
@@ -3200,6 +3238,8 @@ async function verRupturas() {
   try {
     const r = await api(`/api/consolidaciones/rupturas?nivel=${cnNivel}${consolQuery()}`);
     renderConsol(r.items || [], true);
+    consolUltimos = r.items || [];
+    marcarConsolEnPaneles(consolUltimos);
     st.textContent = `${(r.items || []).length} rompiendo el rango · ${r.hora || ""}`;
   } catch (e) {
     st.textContent = "Error: " + e.message;
