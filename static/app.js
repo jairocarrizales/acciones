@@ -3201,11 +3201,6 @@ function cerrarConsol() {
   sincronizarDock();
 }
 
-function consolQuery() {
-  const favs = getLocalFavs();
-  return favs.length ? `&solo=${encodeURIComponent(favs.join(","))}` : "";
-}
-
 async function escanearConsol(forzar = false) {
   const btn = document.getElementById("btnScanConsol");
   const st = document.getElementById("consolStatus");
@@ -3213,7 +3208,9 @@ async function escanearConsol(forzar = false) {
   btn.classList.add("scanning");
   st.textContent = "Buscando rangos en H1…";
   try {
-    const r = await api(`/api/consolidaciones?nivel=${cnNivel}${consolQuery()}`
+    // sin parámetro "solo" el servidor recorre toda la lista, no solo los
+    // favoritos: una consolidación larga interesa la encuentre donde la encuentre
+    const r = await api(`/api/consolidaciones?nivel=${cnNivel}`
       + (forzar ? "&refresh=true" : ""));
     renderConsol(r.items || []);
     consolUltimos = r.items || [];
@@ -3236,7 +3233,7 @@ async function verRupturas() {
   btn.classList.add("scanning");
   st.textContent = "Comprobando rupturas…";
   try {
-    const r = await api(`/api/consolidaciones/rupturas?nivel=${cnNivel}${consolQuery()}`);
+    const r = await api(`/api/consolidaciones/rupturas?nivel=${cnNivel}`);
     renderConsol(r.items || [], true);
     consolUltimos = r.items || [];
     marcarConsolEnPaneles(consolUltimos);
