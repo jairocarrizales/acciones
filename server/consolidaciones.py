@@ -12,8 +12,14 @@ Se comprueban cuatro cosas sobre la ventana, y las cuatro tienen que cumplirse:
   2. MEDIAS LARGAS JUNTAS  la 100 y la 200 pegadas, señal de que no hay tendencia
      de fondo que empuje al precio.
   3. MEDIAS CORTAS PLANAS  la 20 y la 40 sin apenas pendiente en el periodo.
-  4. BOLLINGER ESTRECHO  el ancho de las bandas comprimido respecto a su propia
-     media, el "squeeze" que suele preceder a la ruptura.
+  4. BOLLINGER ESTRECHO  el ancho de las bandas comprimido respecto a su media
+     HISTÓRICA, el "squeeze" que suele preceder a la ruptura. La referencia es un
+     periodo largo, no la propia ventana: comparar un rango contra sí mismo
+     penaliza justo al que lleva semanas consolidando de forma estable.
+
+Y un límite de ancho: sin él, un activo con los extremos agrupados pero que recorre
+un 11% de arriba abajo cuenta como consolidado, y en el gráfico es claramente una
+tendencia con vaivenes.
 
 Sobre el punto 2: la idea original era contar cuántas veces se cruzan la 100 y la
 200, porque en lateral se enredan. Medido sobre 53 activos, en H1 esas medias son
@@ -28,14 +34,15 @@ ficha, pero no filtra.
 VENTANA_VELAS = 70
 EXTREMOS = 8          # cuántos máximos y mínimos se miran para definir el rango
 SQUEEZE_PASO = 5      # cada cuántas velas se muestrea el ancho de banda histórico
+SQUEEZE_REF = 400     # velas de referencia para el ancho "normal" del activo
 BB_PERIOD = 20
 
-# Umbrales por nivel de exigencia, sacados de medir los 53 activos de la lista:
-#   (dispersión de extremos, separación 100/200, pendiente 20 y 40, squeeze)
+# Umbrales por nivel, sacados de medir los 53 activos de la lista:
+#   (dispersión de extremos, separación 100/200, pendiente 20 y 40, squeeze, ancho)
 NIVELES = {
-    "suave":    (2.0, 4.0, 6.0, 1.3),
-    "medio":    (1.2, 2.0, 3.0, 1.0),
-    "estricto": (0.9, 1.5, 1.5, 0.8),
+    "suave":    (2.0, 4.0, 6.0, 1.10, 8.0),
+    "medio":    (1.2, 2.0, 3.0, 0.95, 6.0),
+    "estricto": (0.9, 1.5, 1.5, 0.80, 4.5),
 }
 
 # Velas H1 por sesión, para traducir la ventana a días de mercado
@@ -79,7 +86,7 @@ def detectar(candles, medias, nivel="medio"):
     n = len(candles)
     if n < VENTANA_VELAS + 210:
         return None
-    disp_max, sep_max, pend_max, squeeze_max = NIVELES.get(nivel, NIVELES["medio"])
+    disp_max, sep_max, pend_max, squeeze_max, ancho_max = NIVELES.get(nivel, NIVELES["medio"])
 
     ini = n - VENTANA_VELAS
     ventana = candles[ini:]
@@ -112,10 +119,13 @@ def detectar(candles, medias, nivel="medio"):
     if pend20 > pend_max or pend40 > pend_max:
         return None
 
-    # 4) Bollinger comprimido respecto a su propia media en la ventana
+    # 4) Bollinger comprimido respecto a lo NORMAL en este activo. La referencia
+    # es un periodo largo: medirlo contra la propia ventana penalizaría a quien
+    # lleva semanas consolidando sin sobresaltos.
     ahora = _ancho_banda(candles, n - 1)
     muestras = [a for a in (_ancho_banda(candles, i)
-                            for i in range(ini, n, SQUEEZE_PASO)) if a]
+                            for i in range(max(BB_PERIOD, n - SQUEEZE_REF), n,
+                                           SQUEEZE_PASO)) if a]
     if ahora is None or not muestras:
         return None
     medio = sum(muestras) / len(muestras)
@@ -137,13 +147,19 @@ def detectar(candles, medias, nivel="medio"):
     ultimo = ventana[-1]["close"]
     alto = techo - suelo
 
+    # 5) el rango no puede ser enorme: con los extremos agrupados pero un recorrido
+    # del 11% no hay consolidación, hay tendencia con vaivenes
+    ancho_pct = alto / ultimo * 100
+    if ancho_pct > ancho_max:
+        return None
+
     return {
         "techo": round(techo, 4),
         "suelo": round(suelo, 4),
         # extremos temporales de la ventana, para poder dibujar el rango
         "desde": ventana[0]["time"],
         "hasta": ventana[-1]["time"],
-        "ancho_pct": round(alto / ultimo * 100, 2),
+        "ancho_pct": round(ancho_pct, 2),
         # dónde está el precio dentro del rango: cerca de 100 es pegado al techo
         "posicion_pct": round((ultimo - suelo) / alto * 100, 1) if alto else None,
         "ultimo": round(ultimo, 4),
