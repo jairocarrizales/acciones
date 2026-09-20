@@ -19,6 +19,7 @@ from . import targetprice as tp
 from . import fomc
 from . import aperturas as ap
 from . import cruces as cr
+from . import consolidaciones as cn
 from . import toques as tq
 from . import trends
 from . import twelvedata as td
@@ -1097,6 +1098,75 @@ async def aperturas_premarket(solo: str = ""):
 
     items.sort(key=lambda x: -min(d["distancia_pct"] for d in x["detalles"]))
     return {"items": items, "hora": hoy_dt.strftime("%H:%M ET")}
+
+
+# ---------------- Escáner de consolidaciones en H1 ----------------
+
+# Caché indexada por los parámetros que cambian el resultado: con una sola variable
+# global, cambiar de nivel devolvería la lista del nivel anterior hasta que expire.
+_consol_cache: dict[tuple, tuple[float, list]] = {}
+CONSOL_CACHE_TTL = 600
+
+
+def _consol_tickers(solo: str):
+    tickers = _watchlist_tickers()
+    if solo:
+        pedidos = {t.strip().upper() for t in solo.split(",") if t.strip()}
+        tickers = [t for t in tickers if t in pedidos]
+    return tickers
+
+
+async def _consol_rangos(tickers, nivel):
+    """Rango consolidado de cada activo que cumple, en el orden en que llegan."""
+    items = []
+    for t in tickers:
+        try:
+            velas = await _ensure_candles(t, "1h")
+            r = cn.detectar(velas, tq._medias(velas), nivel)
+            if r:
+                items.append({"symbol": t, **r})
+        except Exception:
+            pass
+    return items
+
+
+@app.get("/api/consolidaciones")
+async def escanear_consolidaciones(solo: str = "", nivel: str = "medio",
+                                   refresh: bool = False):
+    """Activos que llevan diez días o más en rango horizontal."""
+    clave = (nivel, solo)
+    ahora = time.time()
+    guardado = _consol_cache.get(clave)
+    if not refresh and guardado and (ahora - guardado[0]) < CONSOL_CACHE_TTL:
+        return {"items": guardado[1], "cacheado": True}
+
+    items = await _consol_rangos(_consol_tickers(solo), nivel)
+    # el rango más estrecho primero: es el más cerca de romper
+    items.sort(key=lambda x: x["ancho_pct"])
+    _consol_cache[clave] = (ahora, items)
+    return {"items": items, "cacheado": False}
+
+
+@app.get("/api/consolidaciones/rupturas")
+async def rupturas_consolidaciones(solo: str = "", nivel: str = "medio"):
+    """De los que consolidan, cuáles tienen el precio fuera de su rango.
+
+    Pensado para consultarlo cerca de la apertura: el precio viene de Yahoo, la
+    misma fuente que usa el escáner de premarket.
+    """
+    items = []
+    for rango in await _consol_rangos(_consol_tickers(solo), nivel):
+        try:
+            quote = await md.fetch_session_quote(rango["symbol"])
+            precio = quote.get("price")
+            rotura = cn.evaluar_ruptura(rango, precio)
+            if rotura:
+                items.append({**rango, "precio": round(precio, 4),
+                              "sesion": quote.get("session"), **rotura})
+        except Exception:
+            pass
+    items.sort(key=lambda x: -x["exceso_pct"])
+    return {"items": items, "hora": datetime.now(saltos.MARKET_TZ).strftime("%H:%M ET")}
 
 
 # ---------------- Escáner de cruces 20/40 en H1 ----------------
