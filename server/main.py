@@ -1045,15 +1045,19 @@ async def aperturas_premarket(solo: str = ""):
     hoy_dt = datetime.now(saltos.MARKET_TZ)
     hoy = hoy_dt.year * 10000 + hoy_dt.month * 100 + hoy_dt.day
 
-    # Con el mercado abierto esta estimación deja de tener sentido: el precio ya
-    # es de la sesión en marcha y compararlo contra las bandas de ayer da señales
-    # que el escáner real no confirma. Ahí manda el escáner de apertura.
+    # Sonada la campana, el precio ya es de la sesión en marcha y compararlo con
+    # las bandas de ayer da señales falsas. Pero durante la media hora siguiente
+    # sí interesa saber si la apertura quedó fuera, así que se pasa a evaluar la
+    # vela real de las 9:30 en vez de dejar de responder.
     minutos = hoy_dt.hour * 60 + hoy_dt.minute
-    if minutos >= ap.APERTURA_MIN and hoy_dt.weekday() < 5:
+    laborable = hoy_dt.weekday() < 5
+    abierto = laborable and minutos >= ap.APERTURA_MIN
+    en_ventana = abierto and minutos <= ap.APERTURA_MIN + ap.VENTANA_MIN
+    if abierto and not en_ventana:
         return {"items": [], "hora": hoy_dt.strftime("%H:%M ET"),
                 "cerrado": True,
-                "aviso": "El mercado ya abrió: usa el escáner de apertura, "
-                         "que compara el precio real de las 9:30."}
+                "aviso": "Pasó la ventana de apertura: el precio ya es de la "
+                         "sesión en marcha y no dice dónde abrió."}
 
     tickers = _watchlist_tickers()
     if solo:
@@ -1068,11 +1072,14 @@ async def aperturas_premarket(solo: str = ""):
             if not precio:
                 continue
 
-            # de mayor a menor, cortando en la primera que falla
+            # de mayor a menor, cortando en la primera que falla. Antes de la
+            # campana se estima con el precio de premarket; después se mide la
+            # apertura real, que es el dato bueno.
             detalles = []
             for tf in ap.TEMPORALIDADES:
                 velas = await _ensure_candles(t, tf)
-                r = ap.evaluar_premarket(velas, tf, precio, hoy)
+                r = (ap.evaluar_apertura(velas, tf, hoy) if en_ventana
+                     else ap.evaluar_premarket(velas, tf, precio, hoy))
                 if not r:
                     break
                 detalles.append(r)
@@ -1097,7 +1104,9 @@ async def aperturas_premarket(solo: str = ""):
             pass
 
     items.sort(key=lambda x: -min(d["distancia_pct"] for d in x["detalles"]))
-    return {"items": items, "hora": hoy_dt.strftime("%H:%M ET")}
+    return {"items": items, "hora": hoy_dt.strftime("%H:%M ET"),
+            # el front lo usa para decir si la cifra es estimación o apertura real
+            "fase": "apertura" if en_ventana else "premarket"}
 
 
 # ---------------- Escáner de consolidaciones en H1 ----------------

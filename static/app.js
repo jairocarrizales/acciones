@@ -3110,7 +3110,9 @@ async function escanearPremkt(todos = false) {
       return;
     }
     renderPremkt(r.items || []);
-    st.textContent = `${(r.items || []).length} fuera de bandas · `
+    // en la ventana de apertura la cifra ya es la real, no una estimación
+    const fase = r.fase === "apertura" ? "apertura real" : "estimado";
+    st.textContent = `${(r.items || []).length} fuera de bandas · ${fase} · `
       + `${usarFavs ? "favoritos" : "toda la lista"} · ${r.hora || ""}`;
   } catch (e) {
     st.textContent = "Error: " + e.message;
