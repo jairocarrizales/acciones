@@ -11,7 +11,14 @@ Se comprueban cuatro cosas sobre la ventana, y las cuatro tienen que cumplirse:
      desvían: hay un techo y un suelo reconocibles.
   2. MEDIAS LARGAS JUNTAS  la 100 y la 200 pegadas, señal de que no hay tendencia
      de fondo que empuje al precio.
-  3. MEDIAS CORTAS PLANAS  la 20 y la 40 sin apenas pendiente en el periodo.
+  3. MEDIAS CORTAS PLANAS  la 20 y la 40 sin apenas pendiente en el periodo, y
+     medida CON SIGNO: en valor absoluto una caída limpia y sostenida pasa por
+     "plana" mientras no sea brusca, que es como colaban LOW, MA y SPY.
+  3b. SIN DERIVA NETA  el precio termina donde empezó. Una tendencia suave recorre
+     su rango de arriba abajo sin que ningún extremo se dispare.
+  3c. LAS LARGAS SE CRUZAN  la 100 y la 200 deben cambiar de orden al menos una
+     vez: si una lleva todo el periodo por encima de la otra, hay tendencia de
+     fondo aunque el rango parezca horizontal.
   4. BOLLINGER ESTRECHO  el ancho de las bandas comprimido respecto a su media
      HISTÓRICA, el "squeeze" que suele preceder a la ruptura. La referencia es un
      periodo largo, no la propia ventana: comparar un rango contra sí mismo
@@ -38,11 +45,11 @@ SQUEEZE_REF = 400     # velas de referencia para el ancho "normal" del activo
 BB_PERIOD = 20
 
 # Umbrales por nivel, sacados de medir los 53 activos de la lista:
-#   (dispersión de extremos, separación 100/200, pendiente 20 y 40, squeeze, ancho)
+#  (dispersión, separación 100/200, pendiente 20/40, squeeze, ancho, deriva neta)
 NIVELES = {
-    "suave":    (2.0, 4.0, 6.0, 1.10, 8.0),
-    "medio":    (1.2, 2.0, 3.0, 0.95, 6.0),
-    "estricto": (0.9, 1.5, 1.5, 0.80, 4.5),
+    "suave":    (2.0, 4.0, 2.5, 1.10, 8.0, 1.0),
+    "medio":    (1.2, 2.0, 1.5, 0.95, 6.0, 0.7),
+    "estricto": (0.9, 1.5, 1.0, 0.80, 4.5, 0.5),
 }
 
 # Velas H1 por sesión, para traducir la ventana a días de mercado
@@ -86,7 +93,8 @@ def detectar(candles, medias, nivel="medio"):
     n = len(candles)
     if n < VENTANA_VELAS + 210:
         return None
-    disp_max, sep_max, pend_max, squeeze_max, ancho_max = NIVELES.get(nivel, NIVELES["medio"])
+    (disp_max, sep_max, pend_max, squeeze_max,
+     ancho_max, deriva_max) = NIVELES.get(nivel, NIVELES["medio"])
 
     ini = n - VENTANA_VELAS
     ventana = candles[ini:]
@@ -117,6 +125,20 @@ def detectar(candles, medias, nivel="medio"):
     if pend20 is None or pend40 is None:
         return None
     if pend20 > pend_max or pend40 > pend_max:
+        return None
+
+    # 3b) sin deriva neta: el precio debe terminar donde empezó. Una caída suave
+    # y sostenida pasa los filtros anteriores, pero en el gráfico es tendencia.
+    primero, ultimo_cierre = ventana[0]["close"], ventana[-1]["close"]
+    deriva = abs(ultimo_cierre / primero - 1) * 100 if primero else None
+    if deriva is None or deriva > deriva_max:
+        return None
+
+    # 3c) la 100 y la 200 tienen que cambiar de orden en el periodo: si una lleva
+    # todo el rato por encima de la otra, hay tendencia de fondo
+    lados = {medias[100][i] > medias[200][i] for i in range(ini, n)
+             if medias[100][i] is not None and medias[200][i] is not None}
+    if len(lados) < 2:
         return None
 
     # 4) Bollinger comprimido respecto a lo NORMAL en este activo. La referencia
